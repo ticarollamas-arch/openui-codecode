@@ -1,0 +1,40 @@
+# Exemplo para expor SOMENTE a API do 9Router ao backend hospedado na Vercel.
+# Crie o DNS router-api.cyberhuntlab.com.br apontando para o VPS e ajuste os caminhos TLS.
+# O serviço 9Router deve escutar somente em 127.0.0.1:20128.
+
+server {
+    listen 443 ssl http2;
+    server_name router-api.cyberhuntlab.com.br;
+
+    ssl_certificate /etc/letsencrypt/live/router-api.cyberhuntlab.com.br/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/router-api.cyberhuntlab.com.br/privkey.pem;
+
+    client_max_body_size 10m;
+
+    location ^~ /v1/ {
+        proxy_pass http://127.0.0.1:20128;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+    }
+
+    location = /health {
+        proxy_pass http://127.0.0.1:20128/health;
+        proxy_set_header Host $host;
+    }
+
+    # Não publicar dashboard, autenticação administrativa ou APIs internas.
+    location / {
+        return 404;
+    }
+}
+
+server {
+    listen 80;
+    server_name router-api.cyberhuntlab.com.br;
+    return 301 https://$host$request_uri;
+}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import JSZip from "jszip";
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import { callGroqWithFallback } from "@/lib/groq";
+import { getNineRouterConfig, nineRouterHeaders } from "@/lib/ninerouter";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -95,11 +96,36 @@ export async function POST(req: NextRequest) {
     let generatedText = "";
     let modelUsed = preferredModel;
     let tokensUsed: { prompt: number; completion: number; total: number } | undefined;
-    const useOpenCode = Boolean(customServerUrl);
-    if (!useOpenCode && !model.startsWith("groq/")) {
-      throw new Error("O modelo selecionado precisa de um servidor OpenCode conectado. Configure OPENCODE_SERVER_URL ou selecione um modelo Groq.");
+    const useOpenCode = Boolean(customServerUrl) && !model.startsWith("9router/");
+    const useNineRouter = model.startsWith("9router/");
+    if (!useOpenCode && !useNineRouter && !model.startsWith("groq/")) {
+      throw new Error("Selecione 9Router Auto, conecte um servidor OpenCode ou selecione um modelo Groq.");
     }
-    if (useOpenCode) {
+    if (useNineRouter) {
+      const { baseUrl, apiKey } = getNineRouterConfig();
+      if (!getNineRouterConfig().configured) throw new Error("9Router não está configurado no servidor.");
+      const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+        method: "POST",
+        headers: { ...nineRouterHeaders(apiKey), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: model.slice("9router/".length) || "auto",
+          messages: [{ role: "system", content: system }, { role: "user", content: user }],
+          temperature: 0.15,
+          max_tokens: 8192,
+          response_format: { type: "json_object" },
+          stream: false,
+        }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(55000),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(`9Router: ${payload?.error?.message || payload?.error || payload?.message || `HTTP ${response.status}`}`);
+      const content = payload?.choices?.[0]?.message?.content;
+      generatedText = typeof content === "string" ? content : Array.isArray(content) ? content.map((part: any) => part?.text || "").join("\n") : "";
+      modelUsed = payload?.model || "9router/auto";
+      tokensUsed = payload?.usage ? { prompt: payload.usage.prompt_tokens || 0, completion: payload.usage.completion_tokens || 0, total: payload.usage.total_tokens || 0 } : undefined;
+      if (!generatedText.trim()) throw new Error("9Router não retornou o manifesto JSON do projeto.");
+    } else if (useOpenCode) {
       const client = createOpencodeClient({
         baseUrl: customServerUrl,
         throwOnError: true,

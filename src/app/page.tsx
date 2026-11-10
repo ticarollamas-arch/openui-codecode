@@ -40,6 +40,9 @@ import {
   PlugZap,
   Database,
   CircleDollarSign,
+  Blocks,
+  Link2,
+  ArrowUpRight,
 } from "lucide-react";
 
 type Chat = { id: string; title: string; updatedAt: number };
@@ -104,7 +107,7 @@ const SKILL_CATEGORIES = [
 
 export default function Home() {
   const [hydrated, setHydrated] = useState(false);
-  const [tab, setTab] = useState<"chat" | "reverse" | "skills" | "apresentacao">("chat");
+  const [tab, setTab] = useState<"chat" | "connectors" | "reverse" | "skills" | "apresentacao">("chat");
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Chats
@@ -173,6 +176,20 @@ export default function Home() {
   const [providerApiKey, setProviderApiKey] = useState("");
   const [providerSaving, setProviderSaving] = useState(false);
   const [providerFeedback, setProviderFeedback] = useState("");
+  const [routerStatus, setRouterStatus] = useState<"not-configured" | "offline" | "ready">("not-configured");
+  const [routerBusy, setRouterBusy] = useState(false);
+  const [routerFeedback, setRouterFeedback] = useState("");
+  const [routerDefaultModel, setRouterDefaultModel] = useState("");
+
+  // OpenConnector catalog (server-side credentials never reach the browser)
+  const [connectorLoading, setConnectorLoading] = useState(false);
+  const [connectorConfigured, setConnectorConfigured] = useState(false);
+  const [connectorError, setConnectorError] = useState("");
+  const [connectorProviders, setConnectorProviders] = useState<any[]>([]);
+  const [connectorActions, setConnectorActions] = useState<any[]>([]);
+  const [connectorQuery, setConnectorQuery] = useState("");
+  const [selectedConnector, setSelectedConnector] = useState<any>(null);
+  const [connectorConsoleUrl, setConnectorConsoleUrl] = useState("");
 
   const endRef = useRef<HTMLDivElement>(null);
   const busyRef = useRef(false);
@@ -197,11 +214,85 @@ export default function Home() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || data.hint || "Não foi possível carregar os modelos.");
       setProviderCatalog(data.providers || []);
+      setRouterStatus(data.router?.connected ? "ready" : data.router?.configured ? "offline" : "not-configured");
+      setRouterDefaultModel(data.router?.defaultModel || "");
+      if (data.router?.error) setRouterFeedback(data.router.error);
       setActiveProvider((current) => current || data.providers?.find((p: ProviderInfo) => p.connected)?.id || data.providers?.[0]?.id || "");
     } catch (error) {
       setProviderError(error instanceof Error ? error.message : "Falha ao consultar o catálogo OpenCode.");
     } finally {
       setProviderLoading(false);
+    }
+  };
+
+  const loadConnectors = async (query = connectorQuery) => {
+    setConnectorLoading(true);
+    setConnectorError("");
+    try {
+      const response = await fetch(`/api/connectors${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`, { cache: "no-store" });
+      const data = await response.json();
+      setConnectorConfigured(Boolean(data.configured));
+      setConnectorConsoleUrl(data.consoleUrl || "");
+      if (!response.ok || data.error) throw new Error(data.error || "Não foi possível carregar os conectores.");
+      setConnectorProviders(Array.isArray(data.providers) ? data.providers : []);
+      setConnectorActions(Array.isArray(data.actions) ? data.actions : []);
+    } catch (error) {
+      setConnectorError(error instanceof Error ? error.message : "Falha ao consultar o catálogo de conectores.");
+    } finally {
+      setConnectorLoading(false);
+    }
+  };
+
+  const loadConnectorDetails = async (service: string) => {
+    setConnectorLoading(true);
+    setConnectorError("");
+    try {
+      const response = await fetch(`/api/connectors?service=${encodeURIComponent(service)}`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok || data.error) throw new Error(data.error || "Não foi possível carregar as ações deste aplicativo.");
+      setSelectedConnector({ provider: data.provider, actions: Array.isArray(data.actions) ? data.actions : [] });
+    } catch (error) {
+      setConnectorError(error instanceof Error ? error.message : "Falha ao consultar as ações.");
+    } finally {
+      setConnectorLoading(false);
+    }
+  };
+
+  const startNineRouter = async () => {
+    setRouterBusy(true);
+    setRouterFeedback("");
+    try {
+      const response = await fetch("/api/9router/start", { method: "POST", cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "Não foi possível conectar ao 9Router.");
+      setRouterStatus("ready");
+      setRouterDefaultModel(data.defaultModel);
+      setModel(`9router/${data.defaultModel}`);
+      setRouterFeedback(`Ativo · ${data.modelCount} modelos sincronizados · combo ${data.defaultModel} selecionado.`);
+      await loadProviderCatalog();
+    } catch (error) {
+      setRouterStatus("offline");
+      setRouterFeedback(error instanceof Error ? error.message : "Falha ao iniciar 9Router.");
+    } finally {
+      setRouterBusy(false);
+    }
+  };
+
+  const syncNineRouter = async () => {
+    setRouterBusy(true);
+    setRouterFeedback("");
+    try {
+      const response = await fetch("/api/9router/models", { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok || !data.connected) throw new Error(data.error || data.message || "9Router não está disponível.");
+      setRouterStatus("ready");
+      setRouterFeedback(`${data.models.length} modelos sincronizados com o 9Router.`);
+      await loadProviderCatalog();
+    } catch (error) {
+      setRouterStatus("offline");
+      setRouterFeedback(error instanceof Error ? error.message : "Falha ao sincronizar catálogo.");
+    } finally {
+      setRouterBusy(false);
     }
   };
 
@@ -784,6 +875,13 @@ export default function Home() {
               Chat
             </button>
             <button
+              className={tab === "connectors" ? "active" : ""}
+              onClick={() => { setTab("connectors"); if (!connectorProviders.length) void loadConnectors(""); }}
+            >
+              <Blocks size={14} />
+              Conectores
+            </button>
+            <button
               className={tab === "reverse" ? "active" : ""}
               onClick={() => setTab("reverse")}
             >
@@ -896,6 +994,19 @@ export default function Home() {
                 <MessageSquare size={15} />
                 <span>Chat OpenCode</span>
                 {chats.length > 0 && <span className="badge">{chats.length}</span>}
+              </button>
+
+              <button
+                className={`drawer-item ${tab === "connectors" ? "active" : ""}`}
+                onClick={() => {
+                  setTab("connectors");
+                  if (!connectorProviders.length) void loadConnectors("");
+                  setDrawerOpen(false);
+                }}
+              >
+                <Blocks size={15} />
+                <span>Central de Conectores</span>
+                <span className="badge">1k+</span>
               </button>
 
               <button
@@ -1181,6 +1292,11 @@ export default function Home() {
                       value={model}
                       onChange={(e) => setModel(e.target.value)}
                     >
+                      <optgroup label="9Router · Combo de fallback">
+                        <option value={routerDefaultModel ? `9router/${routerDefaultModel}` : "9router/auto"} disabled={!routerDefaultModel}>
+                          {routerDefaultModel ? `Combo · ${routerDefaultModel}` : "Configure o combo padrão no servidor"}
+                        </option>
+                      </optgroup>
                       <optgroup label="Modelos Gratuitos Groq (Alta Velocidade)">
                         {MODELS.filter((m) => m.group === "Groq").map((m) => (
                           <option key={m.id} value={m.id}>
@@ -1212,6 +1328,96 @@ export default function Home() {
               </div>
             </div>
           </>
+        )}
+
+        {/* ============================================================
+            TAB: CENTRAL DE CONECTORES OPENCONNECTOR
+            ============================================================ */}
+        {tab === "connectors" && (
+          <div className="dark-tool-page connectors-page">
+            <div className="connectors-hero">
+              <div>
+                <div className="connectors-eyebrow"><Blocks size={14} /> OPENCONNECTOR · INTEGRAÇÕES</div>
+                <h1>Central de Conectores</h1>
+                <p>Explore aplicativos e ações que a IA poderá utilizar após a autorização das contas.</p>
+              </div>
+              <div className="connectors-count"><b>1.000+</b><span>provedores anunciados</span></div>
+            </div>
+
+            <div className="connectors-toolbar">
+              <div className="connectors-search">
+                <Search size={16} />
+                <input
+                  value={connectorQuery}
+                  onChange={(event) => setConnectorQuery(event.target.value)}
+                  onKeyDown={(event) => { if (event.key === "Enter") void loadConnectors(connectorQuery); }}
+                  placeholder="Buscar aplicativos: GitHub, Gmail, Notion..."
+                />
+                {connectorQuery && <button className="iconbtn" onClick={() => { setConnectorQuery(""); void loadConnectors(""); }} title="Limpar busca"><X size={14}/></button>}
+              </div>
+              <button className="btn-opencode-primary" onClick={() => void loadConnectors(connectorQuery)} disabled={connectorLoading}>
+                <RefreshCw size={14} className={connectorLoading ? "spin" : ""}/> {connectorLoading ? "Carregando" : "Buscar conectores"}
+              </button>
+            </div>
+
+            {!connectorConfigured && (
+              <div className="dark-notice-box neutral">
+                <AlertCircle size={17}/>
+                <div><b>OpenConnector ainda não configurado.</b><small>Adicione OPENCONNECTOR_BASE_URL e OPENCONNECTOR_ADMIN_TOKEN na Vercel. O serviço precisa estar instalado no VPS. Consulte deploy/OPENCONNECTOR.md.</small></div>
+              </div>
+            )}
+            {connectorError && <div className="dark-notice-box neutral"><AlertCircle size={16}/><div>{connectorError}</div></div>}
+
+            {selectedConnector && (
+              <div className="connector-detail-panel">
+                <div className="connector-detail-head">
+                  <div><span className="connectors-eyebrow">APLICATIVO SELECIONADO</span><h2>{selectedConnector.provider?.name || selectedConnector.provider?.displayName || selectedConnector.provider?.id || "Aplicativo"}</h2></div>
+                  <button className="iconbtn" onClick={() => setSelectedConnector(null)} title="Fechar detalhes"><X size={16}/></button>
+                </div>
+                <p className="connector-detail-description">Ações disponíveis no catálogo para este aplicativo:</p>
+                {selectedConnector.actions.length ? <div className="connector-action-list">{selectedConnector.actions.slice(0, 80).map((action: any, index: number) => <div className="connector-action-row" key={action.id || action.actionId || index}><div><b>{action.name || action.title || action.id || action.actionId || `Ação ${index + 1}`}</b><small>{action.description || action.summary || action.id || action.actionId || "Ação disponível no catálogo"}</small></div><code>{action.id || action.actionId || "action"}</code></div>)}</div> : <div className="provider-empty">Nenhuma ação retornada para este aplicativo.</div>}
+              </div>
+            )}
+
+            {connectorActions.length > 0 && connectorQuery.trim() && (
+              <div className="connector-detail-panel">
+                <div className="connector-detail-head"><div><span className="connectors-eyebrow">RESULTADOS DE AÇÕES</span><h2>Ações encontradas</h2></div><button className="iconbtn" onClick={() => setConnectorActions([])}><X size={16}/></button></div>
+                <div className="connector-action-list">{connectorActions.slice(0, 60).map((action: any, index: number) => <div className="connector-action-row" key={action.id || index}><div><b>{action.name || action.title || action.id || "Ação"}</b><small>{action.description || action.summary || "Ação disponível no catálogo"}</small></div><code>{action.id || action.actionId || ""}</code></div>)}</div>
+              </div>
+            )}
+
+            <div className="connectors-section-title"><div><h2>Catálogo de aplicativos</h2><p>{connectorProviders.length ? `${connectorProviders.length} provedores retornados pelo seu runtime` : "Carregue o catálogo para explorar as integrações"}</p></div><span>OAuth · API Key · MCP · HTTP</span></div>
+            {connectorProviders.length > 0 ? (
+              <div className="connector-provider-grid">
+                {connectorProviders.filter((provider: any) => {
+                  const name = `${provider.name || ""} ${provider.id || provider.service || ""} ${provider.description || ""}`.toLowerCase();
+                  return !connectorQuery.trim() || name.includes(connectorQuery.toLowerCase());
+                }).slice(0, 180).map((provider: any, index: number) => {
+                  const id = provider.id || provider.service || provider.slug || `provider-${index}`;
+                  const name = provider.name || provider.displayName || provider.title || id;
+                  const authEntries = Array.isArray(provider.authMethods) ? provider.authMethods : Array.isArray(provider.auth) ? provider.auth : Array.isArray(provider.credentials) ? provider.credentials : [];
+                  const auth = authEntries.map((item: any) => typeof item === "string" ? item : item.label || item.type).filter(Boolean).join(" · ") || "Conexão gerenciada";
+                  return <button className="connector-provider-card" key={id} onClick={() => void loadConnectorDetails(id)}>
+                    <span className="connector-provider-icon"><Blocks size={19}/></span>
+                    <span className="connector-provider-copy"><b>{name}</b><small>{provider.description || auth}</small><code>{id}</code></span>
+                    <ArrowUpRight size={15}/>
+                  </button>;
+                })}
+              </div>
+            ) : !connectorLoading && connectorConfigured ? (
+              <div className="connector-empty"><Blocks size={28}/><b>Nenhum provedor carregado</b><span>Verifique o runtime OpenConnector e atualize o catálogo.</span></div>
+            ) : null}
+
+            <div className="dark-notice-box neutral connector-security-note">
+              <ShieldCheck size={17}/>
+              <div><b>Segurança e contas individuais</b><small>O catálogo é público para consulta, mas credenciais e conexões ficam no servidor. Antes de liberar OAuth para cada cliente, o OpenCodeLab precisa de autenticação de usuários e isolamento de conexões por conta. Não compartilhe uma conexão administrativa entre clientes.</small></div>
+            </div>
+            <div className="connectors-footer-actions">
+              <a className="header-btn" href="https://github.com/oomol-lab/open-connector" target="_blank" rel="noreferrer"><Github size={14}/> Repositório oficial <ExternalLink size={12}/></a>
+              <a className="header-btn" href="https://openconnector.io/docs/" target="_blank" rel="noreferrer">Documentação <ExternalLink size={12}/></a>
+              {connectorConsoleUrl && <a className="header-btn" href={connectorConsoleUrl} target="_blank" rel="noreferrer"><Link2 size={14}/> Console do servidor <ExternalLink size={12}/></a>}
+            </div>
+          </div>
         )}
 
         {/* ============================================================
@@ -1993,7 +2199,7 @@ export default function Home() {
           <div className="dark-modal model-settings-modal" onClick={(e) => e.stopPropagation()}>
             <div className="dark-modal-head">
               <div>
-                <h2><Settings2 size={18} /> Central de modelos OpenCode</h2>
+                <h2><Settings2 size={18} /> Central de modelos e roteamento</h2>
                 <p>Pesquise, conecte provedores e escolha o modelo sem abrir o terminal.</p>
               </div>
               <button className="iconbtn" onClick={() => setSettings(false)}><X size={16} /></button>
@@ -2011,11 +2217,22 @@ export default function Home() {
                 <kbd>⌕</kbd>
               </label>
               <div className="model-console-actions">
-                <button className="header-btn" onClick={loadProviderCatalog} disabled={providerLoading}>
-                  <RefreshCw size={14} className={providerLoading ? "spin" : ""} /> {providerLoading ? "Buscando..." : "Buscar modelos"}
+                <button className="header-btn" onClick={loadProviderCatalog} disabled={providerLoading || routerBusy}>
+                  <RefreshCw size={14} className={providerLoading ? "spin" : ""} /> {providerLoading ? "Buscando..." : "Carregar modelos"}
                 </button>
-                <span><Database size={13} /> Catálogo oficial do servidor OpenCode</span>
+                <button className="header-btn" onClick={syncNineRouter} disabled={routerBusy}>
+                  <RefreshCw size={14} className={routerBusy ? "spin" : ""} /> Sincronizar 9Router
+                </button>
+                <button className="btn-opencode-primary" onClick={startNineRouter} disabled={routerBusy}>
+                  <Zap size={14} /> {routerBusy ? "Conectando..." : routerDefaultModel && model === `9router/${routerDefaultModel}` && routerStatus === "ready" ? "9Router ativo" : "Start 9Router"}
+                </button>
+                <span><Database size={13} /> OpenCode + 9Router</span>
               </div>
+              <div className="dark-notice-box neutral" style={{ marginTop: 10 }}>
+                <Zap size={15} style={{ flexShrink: 0 }} />
+                <div><b>9Router:</b> {routerStatus === "ready" ? "Conectado. O combo selecionado executa fallback ou rotação conforme a estratégia configurada no 9Router." : routerStatus === "offline" ? "Configurado, mas indisponível. Confira a conexão do serviço no VPS." : "Aguardando configuração do serviço no servidor."} <small>As credenciais dos provedores ficam no 9Router do servidor; o usuário final não precisa cadastrar sua própria API. O Start conecta ao serviço já instalado; não instala nem inicia o processo do 9Router.</small></div>
+              </div>
+              {routerFeedback && <p className="provider-feedback">{routerFeedback}</p>}
             </div>
 
             {providerError && <div className="dark-notice-box neutral" style={{ marginTop: 12 }}><AlertCircle size={16} /> <div>{providerError}<br /><small>Verifique se o OpenCode está ativo e se OPENCODE_SERVER_URL aponta para ele.</small></div></div>}
@@ -2055,7 +2272,7 @@ export default function Home() {
 
             <div className="dark-notice-box neutral" style={{ marginTop: 14 }}>
               <ShieldCheck size={16} style={{ flexShrink: 0, color: "var(--accent-text)" }} />
-              <div><b>Uso conforme sua conta (BYOK)</b>: não adicionamos cotas artificiais ao painel. Modelos gratuitos dependem da oferta atual do provedor; modelos pagos consomem os créditos, limites e políticas da conta conectada. Open source não torna a API ilimitada.</div>
+              <div><b>Roteamento compartilhado:</b> quando 9Router estiver ativo, os usuários utilizam as contas e provedores configurados pela administração, sem inserir API própria. O roteador faz fallback/rotação conforme as cotas disponíveis; não cria tokens ilimitados. O uso continua sujeito aos termos, limites e disponibilidade de cada provedor.</div>
             </div>
             <div className="dark-modal-foot">
               <button className="header-btn" onClick={() => { setSettings(false); setProviderSearch(""); }}>Fechar</button>

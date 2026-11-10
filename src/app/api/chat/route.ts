@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import { callGroqWithFallback, GROQ_MODELS } from "@/lib/groq";
+import { getNineRouterConfig, nineRouterHeaders } from "@/lib/ninerouter";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -44,6 +45,39 @@ export async function POST(req: NextRequest) {
       ? [selectedModel.split("/")[0], selectedModel.slice(selectedModel.indexOf("/") + 1)]
       : ["", selectedModel];
     const isGroqModel = selectedProvider === "groq" || GROQ_MODEL_IDS.has(selectedModelId) || selectedModelId.startsWith("groq-");
+
+    if (selectedProvider === "9router") {
+      const { baseUrl, apiKey } = getNineRouterConfig();
+      if (!getNineRouterConfig().configured) {
+        return NextResponse.json({ error: "9Router não está configurado neste servidor." }, { status: 503 });
+      }
+      const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+        method: "POST",
+        headers: { ...nineRouterHeaders(apiKey), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: selectedModelId || "auto",
+          messages: [
+            { role: "system", content: "Você é o motor de desenvolvimento do OpenUI Code Code. Entregue soluções técnicas corretas, econômicas em tokens, preserve o contexto e não invente resultados de execução." },
+            { role: "user", content: message },
+          ],
+          stream: false,
+        }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(55000),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = payload?.error?.message || payload?.error || payload?.message || `9Router respondeu HTTP ${response.status}`;
+        return NextResponse.json({ error: `Falha no 9Router: ${String(detail)}` }, { status: response.status >= 400 && response.status < 600 ? response.status : 502 });
+      }
+      const answer = payload?.choices?.[0]?.message?.content;
+      const responseText = typeof answer === "string" ? answer : Array.isArray(answer) ? answer.map((part: any) => part?.text || "").join("\n") : "";
+      if (!responseText.trim()) return NextResponse.json({ error: "9Router respondeu sem conteúdo. Confira os provedores e modelos ativos no painel do roteador." }, { status: 502 });
+      return NextResponse.json({
+        sessionId: sessionId || crypto.randomUUID(), clientChatId, message: responseText,
+        modelUsed: payload?.model || selectedModelId || "auto", usage: payload?.usage || null, router: "9Router",
+      });
+    }
 
     if (isGroqModel && groqKey) {
       // Execute via Groq multi-model fallback cascade
