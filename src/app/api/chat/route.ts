@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Mensagem vazia" }, { status: 400 });
     }
 
-    const selectedModel = model || "llama-3.3-70b-versatile";
+    const selectedModel = model || "groq/openai/gpt-oss-120b";
     const groqKey = userApiKeys?.groq || process.env.GROQ_API_KEY;
     const [selectedProvider, selectedModelId] = selectedModel.includes("/")
       ? [selectedModel.split("/")[0], selectedModel.slice(selectedModel.indexOf("/") + 1)]
@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
             },
             { role: "user", content: message },
           ],
-          preferredModel: "llama-3.3-70b-versatile",
+          preferredModel: "openai/gpt-oss-120b",
           apiKey: groqKey,
         });
         return NextResponse.json({

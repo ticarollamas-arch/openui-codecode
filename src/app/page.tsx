@@ -82,12 +82,12 @@ const GITHUB_STORE_TOKEN = "opencode-github-token";
 const GITHUB_STORE_USER = "opencode-github-user";
 const API_KEYS_STORE = "opencode-user-api-keys";
 
-// Hybrid model catalog: Groq Free Fast Models + OpenCode Agent Models
+// Modelos Groq de produção; o fallback consulta a lista ativa da própria Groq.
 const MODELS = [
-  { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B (Groq · Inteligência Superior)", group: "Groq" },
-  { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B (Groq · Ultra-Rápido)", group: "Groq" },
-  { id: "qwen-qwq-32b", label: "Qwen QwQ 32B (Groq · Raciocínio & Código)", group: "Groq" },
-  { id: "mixtral-8x7b-32768", label: "Mixtral 8x7B (Groq · 32k Tokens)", group: "Groq" },
+  { id: "groq/openai/gpt-oss-120b", label: "GPT-OSS 120B (Groq · Raciocínio e código)", group: "Groq" },
+  { id: "groq/openai/gpt-oss-20b", label: "GPT-OSS 20B (Groq · Rápido)", group: "Groq" },
+  { id: "groq/qwen/qwen3.8-27b", label: "Qwen 3.8 27B (Groq · Raciocínio)", group: "Groq" },
+  { id: "groq/minimaxai/minimax-m2.7", label: "MiniMax M2.7 (Groq)", group: "Groq" },
 ];
 
 const SKILL_CATEGORIES = [
@@ -113,7 +113,7 @@ export default function Home() {
   const [messages, setMessages] = useState<Record<string, Msg[]>>({});
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [model, setModel] = useState("llama-3.3-70b-versatile");
+  const [model, setModel] = useState("groq/openai/gpt-oss-120b");
   const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState("Pronto para trabalhar");
   const [serverReady, setServerReady] = useState<boolean | null>(null);
@@ -160,6 +160,7 @@ export default function Home() {
     customServerPassword: "",
   });
   const [apiSavedNotice, setApiSavedNotice] = useState(false);
+  const [apiSaveError, setApiSaveError] = useState("");
 
   // Settings
   const [settings, setSettings] = useState(false);
@@ -182,7 +183,12 @@ export default function Home() {
     setProviderLoading(true);
     setProviderError("");
     try {
-      const response = await fetch("/api/models", { cache: "no-store" });
+      const response = await fetch("/api/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ customServerUrl: apiKeys.customServerUrl || undefined, customServerPassword: apiKeys.customServerPassword || undefined }),
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || data.hint || "Não foi possível carregar os modelos.");
       setProviderCatalog(data.providers || []);
@@ -202,7 +208,7 @@ export default function Home() {
       const response = await fetch(`/api/providers/${encodeURIComponent(activeProvider)}/auth`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: providerApiKey.trim() }),
+        body: JSON.stringify({ key: providerApiKey.trim(), customServerUrl: apiKeys.customServerUrl || undefined, customServerPassword: apiKeys.customServerPassword || undefined }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Não foi possível conectar o provedor.");
@@ -241,7 +247,9 @@ export default function Home() {
         setChats(d.chats || []);
         setMessages(d.messages || {});
         setActive(d.active || d.chats?.[0]?.id || "");
-        setModel(d.model || "llama-3.3-70b-versatile");
+        const oldModel = d.model || "";
+        const retiredGroqModels = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen-qwq-32b", "mixtral-8x7b-32768", "gemma2-9b-it"];
+        setModel(retiredGroqModels.includes(oldModel) ? "groq/openai/gpt-oss-120b" : (oldModel || "groq/openai/gpt-oss-120b"));
         setSessionMap(d.sessionMap || {});
         if (d.tab) setTab(d.tab);
       }
@@ -563,10 +571,26 @@ export default function Home() {
     setAuthFeedback(null);
   }
 
-  function saveCustomApiKeys() {
+  async function saveCustomApiKeys() {
+    setApiSaveError("");
+    setApiSavedNotice(false);
+    if (apiKeys.groq.trim()) {
+      try {
+        const check = await fetch("/api/groq/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apiKey: apiKeys.groq.trim() }),
+        });
+        const result = await check.json();
+        if (!check.ok) throw new Error(result.error || "A Groq não aceitou essa API key.");
+      } catch (error) {
+        setApiSaveError(error instanceof Error ? error.message : "Não foi possível validar a API key.");
+        return;
+      }
+    }
     localStorage.setItem(API_KEYS_STORE, JSON.stringify(apiKeys));
     setApiSavedNotice(true);
-    setTimeout(() => setApiSavedNotice(false), 2500);
+    setTimeout(() => setApiSavedNotice(false), 3500);
   }
 
   // Publish to GitHub via Git Trees API
@@ -636,7 +660,7 @@ export default function Home() {
               <Code2 size={18} />
             </div>
             <div className="brand-title">
-              <span>OpenCode</span>
+              <span>OpenUI Code Code</span>
             </div>
           </div>
 
@@ -735,7 +759,7 @@ export default function Home() {
                   <Code2 size={18} />
                 </div>
                 <div className="brand-title">
-                  <span>OpenCode Workspace</span>
+                  <span>OpenUI Code Code</span>
                 </div>
               </div>
               <button className="iconbtn" onClick={() => setDrawerOpen(false)}>
@@ -1384,7 +1408,7 @@ export default function Home() {
         )}
 
         {/* ============================================================
-            TAB 4: PÁGINA DE APRESENTAÇÃO (Web UI CodeCode)
+            TAB 4: PÁGINA DE APRESENTAÇÃO (OpenUI Code Code)
             ============================================================ */}
         {tab === "apresentacao" && (
           <div className="presentation-container">
@@ -1394,7 +1418,7 @@ export default function Home() {
                 OPENCODE COMPANION · WEB UI
               </div>
 
-              <h1 className="presentation-title">Web UI CodeCode</h1>
+              <h1 className="presentation-title">OpenUI Code Code</h1>
 
               <p className="presentation-subtitle">
                 A interface visual definitiva para o ecossistema <b>OpenCode</b>. Equipada com múltiplos modelos
@@ -1434,8 +1458,8 @@ export default function Home() {
                 <a href="https://github.com/ticarollamas-arch" target="_blank" rel="noreferrer" className="social-link">
                   <Github size={17} /> <span>GitHub · @ticarollamas-arch</span> <ExternalLink size={12} />
                 </a>
-                <a href="https://www.instagram.com/anacarolinilama/" target="_blank" rel="noreferrer" className="social-link instagram-link">
-                  <Instagram size={17} /> <span>Instagram · @anacarolinilama</span> <ExternalLink size={12} />
+                <a href="https://www.instagram.com/anacarolinelamas/" target="_blank" rel="noreferrer" className="social-link instagram-link">
+                  <Instagram size={17} /> <span>Instagram · @anacarolinelamas</span> <ExternalLink size={12} />
                 </a>
               </div>
             </div>
@@ -1478,7 +1502,7 @@ export default function Home() {
                   Créditos e Reconhecimento ao OpenCode
                 </h3>
                 <p>
-                  O <b>Web UI CodeCode</b> foi concebido em homenagem e como cliente visual para o ecossistema{" "}
+                  O <b>OpenUI Code Code</b> foi concebido em homenagem e como cliente visual para o ecossistema{" "}
                   <b>OpenCode</b>. Todos os méritos de motor de agente são atribuídos ao projeto oficial.
                 </p>
               </div>
@@ -1598,7 +1622,7 @@ export default function Home() {
                 autoComplete="off"
               />
               <span style={{ fontSize: "11px", color: "var(--text-dim)" }}>
-                Habilita Llama 3.3 70B, Qwen QwQ e Mixtral com fallback automático entre limites.
+                Conecta sua conta Groq. O catálogo e o fallback usam modelos atualmente ativos na API oficial.
               </span>
             </div>
 
@@ -1644,10 +1668,11 @@ export default function Home() {
               />
             </div>
 
+            {apiSaveError && <div className="dark-notice-box error" style={{ marginBottom: "12px" }}><AlertCircle size={15} /><span>{apiSaveError}</span></div>}
             {apiSavedNotice && (
               <div className="dark-notice-box info" style={{ marginBottom: "12px" }}>
                 <CheckCircle2 size={15} />
-                <span>Chaves salvas com sucesso no navegador!</span>
+                <span>Chaves salvas neste navegador. Quando informada, a chave Groq foi validada antes de salvar.</span>
               </div>
             )}
 

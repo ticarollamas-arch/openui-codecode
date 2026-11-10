@@ -1,6 +1,6 @@
 {
-  "name": "OpenCode Workspace",
-  "description": "Ambiente pessoal de desenvolvimento por conversa integrado com GitHub e OpenCode.",
+  "name": "OpenUI Code Code",
+  "description": "Interface gráfica para o OpenCode, com chat, modelos de IA e integração com GitHub.",
   "permissions": [],
   "capabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

@@ -15,38 +15,13 @@ export interface GroqModelConfig {
   contextWindow: number;
 }
 
-// Ordered list of Groq models for cascading fallback
+// Modelos de produção atuais. A lista real é consultada na API /models da Groq;
+// estes IDs servem apenas como fallback caso a listagem esteja indisponível.
 export const GROQ_MODELS: GroqModelConfig[] = [
-  {
-    id: "llama-3.3-70b-versatile",
-    name: "Llama 3.3 70B Versatile (Alta Inteligência)",
-    tier: "flagship",
-    contextWindow: 128000,
-  },
-  {
-    id: "llama-3.1-8b-instant",
-    name: "Llama 3.1 8B Instant (Ultra-Rápido)",
-    tier: "fast",
-    contextWindow: 128000,
-  },
-  {
-    id: "qwen-qwq-32b",
-    name: "Qwen QwQ 32B (Raciocínio & Código)",
-    tier: "reasoning",
-    contextWindow: 32768,
-  },
-  {
-    id: "mixtral-8x7b-32768",
-    name: "Mixtral 8x7B (Contexto Balanceado)",
-    tier: "efficient",
-    contextWindow: 32768,
-  },
-  {
-    id: "gemma2-9b-it",
-    name: "Gemma 2 9B IT (Google / Rápido)",
-    tier: "fast",
-    contextWindow: 8192,
-  },
+  { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B", tier: "flagship", contextWindow: 131072 },
+  { id: "openai/gpt-oss-20b", name: "GPT-OSS 20B", tier: "fast", contextWindow: 131072 },
+  { id: "qwen/qwen3.8-27b", name: "Qwen 3.8 27B", tier: "reasoning", contextWindow: 131072 },
+  { id: "minimaxai/minimax-m2.7", name: "MiniMax M2.7", tier: "reasoning", contextWindow: 196608 },
 ];
 
 export interface GroqExecutionResult {
@@ -77,11 +52,22 @@ export async function callGroqWithFallback(options: {
   }
 
   // Build the prioritized model list starting with the preferred model
-  const preferred = options.preferredModel || "llama-3.3-70b-versatile";
-  const priorityList = [
-    preferred,
-    ...GROQ_MODELS.map((m) => m.id).filter((id) => id !== preferred),
-  ];
+  const preferred = options.preferredModel || "openai/gpt-oss-120b";
+  let liveModels: string[] = [];
+  try {
+    const catalog = await fetch("https://api.groq.com/openai/v1/models", {
+      headers: { Authorization: `Bearer ${apiKey.trim()}` },
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+    });
+    if (catalog.ok) {
+      const payload = await catalog.json();
+      liveModels = (payload.data || []).map((item: any) => item.id).filter((id: unknown): id is string => typeof id === "string");
+    }
+  } catch { /* usa os modelos de produção conhecidos como contingência */ }
+  const knownModels = GROQ_MODELS.map((item) => item.id);
+  const candidates = liveModels.length ? knownModels.filter((id) => liveModels.includes(id)) : knownModels;
+  const priorityList = [preferred, ...candidates.filter((id) => id !== preferred)].filter((id, index, all) => all.indexOf(id) === index);
 
   const rateLimitedModels: string[] = [];
   let lastError: Error | null = null;
@@ -117,9 +103,14 @@ export async function callGroqWithFallback(options: {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(
-          errorData.error?.message || `Groq API erro ${response.status}: ${response.statusText}`
-        );
+        const message = errorData.error?.message || `Groq API erro ${response.status}: ${response.statusText}`;
+        // Modelo removido/incompatível: registra e tenta o próximo modelo ativo.
+        if (response.status === 400 || response.status === 404 || response.status === 422) {
+          lastError = new Error(message);
+          rateLimitedModels.push(`${model} (indisponível)`);
+          continue;
+        }
+        throw new Error(message);
       }
 
       const data = await response.json();
@@ -144,7 +135,9 @@ export async function callGroqWithFallback(options: {
       if (
         lastError.message.includes("401") ||
         lastError.message.includes("Invalid API Key") ||
-        lastError.message.includes("unauthorized")
+        lastError.message.includes("unauthorized") ||
+        lastError.message.includes("API key") ||
+        lastError.message.includes("Invalid API Key")
       ) {
         throw lastError;
       }
@@ -153,6 +146,6 @@ export async function callGroqWithFallback(options: {
   }
 
   throw new Error(
-    `Todos os modelos da Groq atingiram limites ou falharam. Último erro: ${lastError?.message || "Rate limit esgotado"}. Modelos testados: ${priorityList.join(", ")}`
+    `Nenhum modelo ativo da Groq conseguiu responder. Último erro: ${lastError?.message || "Rate limit esgotado"}. Modelos testados: ${priorityList.join(", ")}`
   );
 }

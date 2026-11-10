@@ -1,22 +1,22 @@
-# Web UI CodeCode
+# OpenUI Code Code
 
 > Interface Web moderna, rápida e intuitiva desenvolvida para o ecossistema de desenvolvimento e execução aberta **OpenCode**.
 
-Repositório Oficial do CodeCode: [Web UI CodeCode](https://github.com/ticarollamas-arch/opencode-workspace-vercel)
+Repositório Oficial do OpenUI Code Code: [OpenUI Code Code](https://github.com/ticarollamas-arch/opencode-workspace-vercel)
 
 ---
 
 ## ⭐️ Créditos e Reconhecimento ao OpenCode
 
-O **Web UI CodeCode** é uma interface visual projetada para operar em sinergia com o motor oficial de execução de código aberto **OpenCode**.
+O **OpenUI Code Code** é uma interface visual projetada para operar em sinergia com o motor oficial de execução de código aberto **OpenCode**.
 
 - **Projeto Open Source de Origem**: [OpenCode no GitHub](https://github.com/opencode-ai/opencode) (`github.com/OpenCode`)
 - **SDK Oficial**: `@opencode-ai/sdk`
-- **Reconhecimento**: Todos os créditos do motor de execução, arquitetura de agente e execução de código são atribuídos aos criadores e mantenedores do projeto open source **OpenCode**. O CodeCode atua exclusivamente como camada de interface web (Web UI) proporcionando uma experiência de desenvolvimento rica, visual e com suporte a chaves próprias de API.
+- **Reconhecimento**: Todos os créditos do motor de execução, arquitetura de agente e execução de código são atribuídos aos criadores e mantenedores do projeto open source **OpenCode**. O OpenUI Code Code atua exclusivamente como camada de interface web (Web UI) proporcionando uma experiência de desenvolvimento rica, visual e com suporte a chaves próprias de API.
 
 ---
 
-## 🚀 Funcionalidades Principais do Web UI CodeCode
+## 🚀 Funcionalidades Principais do OpenUI Code Code
 
 1. **Paleta Oficial OpenCode Dark**:
    - Design moderno em tema escuro baseado na identidade visual do OpenCode (painéis elegantes, tons profundos de grafite e detalhes em laranja/âmbar característicos).
@@ -25,7 +25,7 @@ O **Web UI CodeCode** é uma interface visual projetada para operar em sinergia 
    - A lateral fixa foi substituída por um menu hambúrguer compacto e acessível, liberando 100% da área útil da tela para escrita de código e conversa com o executor.
 
 3. **Página de Apresentação Integrada**:
-   - Visão geral completa sobre o **Web UI CodeCode**, com atalhos rápidos e direcionamento aos créditos do **OpenCode**.
+   - Visão geral completa sobre o **OpenUI Code Code**, com atalhos rápidos e direcionamento aos créditos do **OpenCode**.
 
 4. **Gerenciamento de Chaves de API no Painel (BYOK - Bring Your Own Key)**:
    - Os usuários podem inserir suas próprias chaves de API (OpenAI, Anthropic, Google Gemini, GitHub e OpenCode Server) diretamente no painel de configurações no rodapé da aplicação.
@@ -53,7 +53,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Abra [http://localhost:3000](http://localhost:3000) no seu navegador para utilizar o **Web UI CodeCode**.
+Abra [http://localhost:3000](http://localhost:3000) no seu navegador para utilizar o **OpenUI Code Code**.
 
 ---
 
@@ -77,7 +77,7 @@ A Central de modelos consulta o endpoint oficial `GET /provider` do servidor Ope
 - O modelo selecionado é enviado como `providerID/modelID` ao SDK.
 - OAuth, autenticações com formulários especiais e provedores que exigem variáveis de ambiente ainda podem precisar do fluxo nativo `/connect` ou da configuração do servidor.
 
-**Limites e cobrança:** o CodeCode não impõe cotas próprias de tokens. O uso continua sujeito aos créditos, planos, limites, rate limits e termos do provedor. Código aberto não significa APIs pagas ilimitadas.
+**Limites e cobrança:** o OpenUI Code Code não impõe cotas próprias de tokens. O uso continua sujeito aos créditos, planos, limites, rate limits e termos do provedor. Código aberto não significa APIs pagas ilimitadas.
 
 ### Referência de economia de tokens
 
