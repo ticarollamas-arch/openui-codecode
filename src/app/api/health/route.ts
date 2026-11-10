@@ -3,10 +3,10 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 
 export async function GET() {
-  const configured = Boolean(process.env.OPENCODE_SERVER_URL);
+  const configured = Boolean(process.env.EXECUTOR_SERVER_URL);
   if (!configured) {
     return NextResponse.json(
-      { ok: false, error: "OPENCODE_SERVER_URL não configurada" },
+      { ok: false, error: "EXECUTOR_SERVER_URL não configurada" },
       { status: 503 }
     );
   }
@@ -22,7 +22,7 @@ export async function GET() {
     return NextResponse.json({ ok: healthy, version: result?.data?.version });
   } catch {
     return NextResponse.json(
-      { ok: false, error: "Executor OpenCode indisponível" },
+      { ok: false, error: "Motor de execução indisponível" },
       { status: 503 }
     );
   }

@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
 
   // Also read any local physical SKILL.md files if available
   const localSkills: any[] = [];
-  const roots = [process.env.OPENCODE_SKILLS_DIR, path.join(process.cwd(), ".agents", "skills")].filter(
+  const roots = [process.env.EXECUTOR_SKILLS_DIR, path.join(process.cwd(), ".agents", "skills")].filter(
     Boolean
   ) as string[];
 
@@ -47,13 +47,13 @@ export async function GET(req: NextRequest) {
           const desc =
             raw.match(/^description:\s*(.+)$/m)?.[1] ||
             raw.split("\n").find((x) => x.trim() && !x.startsWith("#")) ||
-            "Skill local do OpenCode";
+            "Skill local do workspace";
           localSkills.push({
             id: `local-${e.name}`,
             name: e.name,
             category: "Skills Locais",
             description: desc.replace(/^['"]|['"]$/g, ""),
-            tags: ["local", "opencode"],
+            tags: ["local", "workspace"],
             version: "local",
           });
         } catch {}

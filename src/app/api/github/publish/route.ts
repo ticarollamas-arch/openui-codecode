@@ -8,10 +8,14 @@ const api = "https://api.github.com";
 
 export async function POST(req: NextRequest) {
   try {
+    if (process.env.GITHUB_PUBLISH_ENABLED !== "true") {
+      return NextResponse.json(
+        { error: "Publicação GitHub desabilitada até a plataforma implementar autenticação e autorização por usuário." },
+        { status: 503 }
+      );
+    }
     const form = await req.formData();
-    const formToken = form.get("token") ? String(form.get("token")).trim() : null;
-    const headerToken = req.headers.get("x-github-token")?.trim();
-    const token = formToken || headerToken || process.env.GITHUB_TOKEN;
+    const token = process.env.GITHUB_TOKEN;
 
     if (!token) {
       return NextResponse.json(
@@ -74,7 +78,7 @@ export async function POST(req: NextRequest) {
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
       "Content-Type": "application/json",
-      "User-Agent": "OpenCode-Workspace",
+      "User-Agent": "Open-UI-Code-Code",
     };
 
     async function gh(url: string, body?: unknown, method?: string) {
@@ -106,7 +110,7 @@ export async function POST(req: NextRequest) {
         try {
           await gh(`${api}/user/repos`, {
             name: repoName,
-            description: "Projeto publicado via OpenCode Workspace",
+            description: "Projeto publicado via Open UI Code Code",
             auto_init: true,
             private: false,
           });
@@ -160,7 +164,7 @@ export async function POST(req: NextRequest) {
 
     // Create Commit
     const commitPayload: any = {
-      message: `OpenCode Import: ${files.length} arquivos descompactados e sincronizados`,
+      message: `Workspace import: ${files.length} arquivos descompactados e sincronizados`,
       tree: newTree.sha,
     };
     if (parentSha) {
@@ -184,7 +188,7 @@ export async function POST(req: NextRequest) {
 
     // Optional notification to OpenCode executor
     let openCodeStatus = "Não configurado";
-    if (notifyOpenCode && process.env.OPENCODE_SERVER_URL) {
+    if (notifyOpenCode && process.env.EXECUTOR_SERVER_URL) {
       try {
         const { opencode } = await import("@/lib/opencode");
         await opencode.session.create({
@@ -192,7 +196,7 @@ export async function POST(req: NextRequest) {
             title: `Workspace importado: ${repository}`,
           },
         });
-        openCodeStatus = "Sessão iniciada no OpenCode";
+        openCodeStatus = "Sessão iniciada no motor de execução";
       } catch {
         openCodeStatus = "Executor ocupado ou indisponível";
       }

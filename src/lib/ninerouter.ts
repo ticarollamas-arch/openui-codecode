@@ -1,5 +1,14 @@
 const DEFAULT_BASE_URL = "http://127.0.0.1:20128";
 
+export interface NineRouterModel {
+  id: string;
+  name?: string;
+  context_length?: number;
+  context_window?: number;
+  max_output_tokens?: number;
+  modalities?: string[];
+}
+
 export function getNineRouterConfig() {
   const baseUrl = (process.env.NINEROUTER_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
   const apiKey = process.env.NINEROUTER_API_KEY || "";
@@ -26,10 +35,18 @@ export async function fetchNineRouterModels() {
     const message = payload?.error?.message || payload?.error || payload?.message || `9Router respondeu HTTP ${response.status}`;
     throw new Error(String(message));
   }
-  const rawModels = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [];
+  const rawModels: unknown[] = Array.isArray(payload?.data)
+    ? payload.data
+    : Array.isArray(payload?.models)
+      ? payload.models
+      : [];
   const models = rawModels
-    .filter((item: any) => item && typeof item.id === "string" && item.id.trim())
-    .map((item: any) => ({
+    .filter((item): item is NineRouterModel => {
+      if (!item || typeof item !== "object") return false;
+      const candidate = item as Record<string, unknown>;
+      return typeof candidate.id === "string" && candidate.id.trim().length > 0;
+    })
+    .map((item: NineRouterModel) => ({
       id: item.id,
       name: item.name || item.id,
       context: item.context_length || item.context_window || null,

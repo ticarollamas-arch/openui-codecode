@@ -1,6 +1,6 @@
 {
-  "name": "OpenUI Code Code",
-  "description": "Interface gráfica para o OpenCode, com chat, modelos de IA e integração com GitHub.",
+  "name": "Open UI Code Code",
+  "description": "Central de agentes de IA, cloud e ferramentas de desenvolvimento.",
   "permissions": [],
   "capabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

@@ -1,21 +1,5 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": [
-    "@tarquinen/opencode-dcp@latest"
-  ],
-  "instructions": [
-    ".agents/skills/**/SKILL.md"
-  ],
-  "mcp": {
-    "openconnector": {
-      "type": "remote",
-      "url": "{env:OPENCONNECTOR_MCP_URL}",
-      "enabled": false,
-      "oauth": false,
-      "headers": {
-        "Authorization": "Bearer {env:OPENCONNECTOR_RUNTIME_TOKEN}"
-      },
-      "timeout": 60000
-    }
-  }
+  "plugin": ["@tarquinen/opencode-dcp@latest"],
+  "instructions": [".agents/skills/**/SKILL.md"]
 }

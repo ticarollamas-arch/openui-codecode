@@ -40,9 +40,6 @@ import {
   PlugZap,
   Database,
   CircleDollarSign,
-  Blocks,
-  Link2,
-  ArrowUpRight,
 } from "lucide-react";
 
 type Chat = { id: string; title: string; updatedAt: number };
@@ -60,15 +57,6 @@ type GitHubUser = {
 type ProviderModel = { id: string; name: string; context: number | null; output: number | null; inputPrice: number | null; outputPrice: number | null; free: boolean; modalities?: any };
 type ProviderInfo = { id: string; name: string; connected: boolean; authMethods?: { type: string; label?: string }[]; models: ProviderModel[] };
 
-type ApiKeysState = {
-  groq: string;
-  openai: string;
-  anthropic: string;
-  gemini: string;
-  customServerUrl: string;
-  customServerPassword: string;
-};
-
 type ReverseEngResult = {
   fileName: string;
   fileSize: number;
@@ -81,9 +69,6 @@ type ReverseEngResult = {
 };
 
 const STORE = "opencode-workspace-v4";
-const GITHUB_STORE_TOKEN = "opencode-github-token";
-const GITHUB_STORE_USER = "opencode-github-user";
-const API_KEYS_STORE = "opencode-user-api-keys";
 
 // Modelos Groq de produção; o fallback consulta a lista ativa da própria Groq.
 const MODELS = [
@@ -107,7 +92,7 @@ const SKILL_CATEGORIES = [
 
 export default function Home() {
   const [hydrated, setHydrated] = useState(false);
-  const [tab, setTab] = useState<"chat" | "connectors" | "reverse" | "skills" | "apresentacao">("chat");
+  const [tab, setTab] = useState<"chat" | "reverse" | "skills" | "apresentacao">("chat");
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Chats
@@ -146,25 +131,9 @@ export default function Home() {
 
   // GitHub Auth
   const [githubAuthModal, setGithubAuthModal] = useState(false);
-  const [githubToken, setGithubToken] = useState("");
   const [githubUser, setGithubUser] = useState<GitHubUser | null>(null);
-  const [tokenInput, setTokenInput] = useState("");
-  const [showToken, setShowToken] = useState(false);
   const [verifyingToken, setVerifyingToken] = useState(false);
   const [authFeedback, setAuthFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  // Custom User APIs (BYOK)
-  const [apiModal, setApiModal] = useState(false);
-  const [apiKeys, setApiKeys] = useState<ApiKeysState>({
-    groq: "",
-    openai: "",
-    anthropic: "",
-    gemini: "",
-    customServerUrl: "",
-    customServerPassword: "",
-  });
-  const [apiSavedNotice, setApiSavedNotice] = useState(false);
-  const [apiSaveError, setApiSaveError] = useState("");
 
   // Settings
   const [settings, setSettings] = useState(false);
@@ -173,23 +142,11 @@ export default function Home() {
   const [providerLoading, setProviderLoading] = useState(false);
   const [providerError, setProviderError] = useState("");
   const [activeProvider, setActiveProvider] = useState("");
-  const [providerApiKey, setProviderApiKey] = useState("");
-  const [providerSaving, setProviderSaving] = useState(false);
   const [providerFeedback, setProviderFeedback] = useState("");
   const [routerStatus, setRouterStatus] = useState<"not-configured" | "offline" | "ready">("not-configured");
   const [routerBusy, setRouterBusy] = useState(false);
   const [routerFeedback, setRouterFeedback] = useState("");
   const [routerDefaultModel, setRouterDefaultModel] = useState("");
-
-  // OpenConnector catalog (server-side credentials never reach the browser)
-  const [connectorLoading, setConnectorLoading] = useState(false);
-  const [connectorConfigured, setConnectorConfigured] = useState(false);
-  const [connectorError, setConnectorError] = useState("");
-  const [connectorProviders, setConnectorProviders] = useState<any[]>([]);
-  const [connectorActions, setConnectorActions] = useState<any[]>([]);
-  const [connectorQuery, setConnectorQuery] = useState("");
-  const [selectedConnector, setSelectedConnector] = useState<any>(null);
-  const [connectorConsoleUrl, setConnectorConsoleUrl] = useState("");
 
   const endRef = useRef<HTMLDivElement>(null);
   const busyRef = useRef(false);
@@ -209,7 +166,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
-        body: JSON.stringify({ customServerUrl: apiKeys.customServerUrl || undefined, customServerPassword: apiKeys.customServerPassword || undefined }),
+        body: JSON.stringify({}),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || data.hint || "Não foi possível carregar os modelos.");
@@ -219,42 +176,9 @@ export default function Home() {
       if (data.router?.error) setRouterFeedback(data.router.error);
       setActiveProvider((current) => current || data.providers?.find((p: ProviderInfo) => p.connected)?.id || data.providers?.[0]?.id || "");
     } catch (error) {
-      setProviderError(error instanceof Error ? error.message : "Falha ao consultar o catálogo OpenCode.");
+      setProviderError(error instanceof Error ? error.message : "Falha ao consultar o catálogo de modelos.");
     } finally {
       setProviderLoading(false);
-    }
-  };
-
-  const loadConnectors = async (query = connectorQuery) => {
-    setConnectorLoading(true);
-    setConnectorError("");
-    try {
-      const response = await fetch(`/api/connectors${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`, { cache: "no-store" });
-      const data = await response.json();
-      setConnectorConfigured(Boolean(data.configured));
-      setConnectorConsoleUrl(data.consoleUrl || "");
-      if (!response.ok || data.error) throw new Error(data.error || "Não foi possível carregar os conectores.");
-      setConnectorProviders(Array.isArray(data.providers) ? data.providers : []);
-      setConnectorActions(Array.isArray(data.actions) ? data.actions : []);
-    } catch (error) {
-      setConnectorError(error instanceof Error ? error.message : "Falha ao consultar o catálogo de conectores.");
-    } finally {
-      setConnectorLoading(false);
-    }
-  };
-
-  const loadConnectorDetails = async (service: string) => {
-    setConnectorLoading(true);
-    setConnectorError("");
-    try {
-      const response = await fetch(`/api/connectors?service=${encodeURIComponent(service)}`, { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok || data.error) throw new Error(data.error || "Não foi possível carregar as ações deste aplicativo.");
-      setSelectedConnector({ provider: data.provider, actions: Array.isArray(data.actions) ? data.actions : [] });
-    } catch (error) {
-      setConnectorError(error instanceof Error ? error.message : "Falha ao consultar as ações.");
-    } finally {
-      setConnectorLoading(false);
     }
   };
 
@@ -296,35 +220,11 @@ export default function Home() {
     }
   };
 
-  const connectProvider = async () => {
-    if (!activeProvider || !providerApiKey.trim()) return;
-    setProviderSaving(true);
-    setProviderFeedback("");
-    try {
-      const response = await fetch(`/api/providers/${encodeURIComponent(activeProvider)}/auth`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: providerApiKey.trim(), customServerUrl: apiKeys.customServerUrl || undefined, customServerPassword: apiKeys.customServerPassword || undefined }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Não foi possível conectar o provedor.");
-      setProviderApiKey("");
-      setProviderFeedback(`Conectado: ${activeProvider}. Atualizando modelos...`);
-      await loadProviderCatalog();
-    } catch (error) {
-      setProviderFeedback(error instanceof Error ? error.message : "Falha ao conectar.");
-    } finally {
-      setProviderSaving(false);
-    }
-  };
-
   const visibleProviders = providerCatalog.filter((provider) => {
     const query = providerSearch.trim().toLowerCase();
     return !query || provider.name.toLowerCase().includes(query) || provider.id.toLowerCase().includes(query) || provider.models.some((item) => item.name.toLowerCase().includes(query) || item.id.toLowerCase().includes(query));
   });
   const selectedProviderInfo = providerCatalog.find((provider) => provider.id === activeProvider);
-  const selectedProviderHasApiKey = selectedProviderInfo?.authMethods?.some((method) => method.type === "api") ?? true;
-  const selectedProviderHasOAuth = selectedProviderInfo?.authMethods?.some((method) => method.type === "oauth") ?? false;
   const visibleModels = (selectedProviderInfo?.models || []).filter((item) => {
     const query = providerSearch.trim().toLowerCase();
     return !query || item.name.toLowerCase().includes(query) || item.id.toLowerCase().includes(query);
@@ -364,19 +264,10 @@ export default function Home() {
           }
         }
       } catch { /* cache opcional; não bloqueia a hidratação da interface */ }
-      const savedToken = localStorage.getItem(GITHUB_STORE_TOKEN);
-      const savedUser = localStorage.getItem(GITHUB_STORE_USER);
-      if (savedToken) {
-        setGithubToken(savedToken);
-        setTokenInput(savedToken);
-      }
-      if (savedUser) {
-        setGithubUser(JSON.parse(savedUser));
-      }
-      const savedKeys = localStorage.getItem(API_KEYS_STORE);
-      if (savedKeys) {
-        setApiKeys(JSON.parse(savedKeys));
-      }
+      localStorage.removeItem("opencode-github-token");
+      localStorage.removeItem("opencode-github-user");
+      // Credenciais de provedores são administradas exclusivamente no servidor.
+      localStorage.removeItem("opencode-user-api-keys");
     } catch {
       // Ignore
     } finally {
@@ -393,21 +284,6 @@ export default function Home() {
       );
     }
   }, [chats, messages, active, model, sessionMap, tab, hydrated]);
-
-  useEffect(() => {
-    if (hydrated) {
-      if (githubToken) {
-        localStorage.setItem(GITHUB_STORE_TOKEN, githubToken);
-      } else {
-        localStorage.removeItem(GITHUB_STORE_TOKEN);
-      }
-      if (githubUser) {
-        localStorage.setItem(GITHUB_STORE_USER, JSON.stringify(githubUser));
-      } else {
-        localStorage.removeItem(GITHUB_STORE_USER);
-      }
-    }
-  }, [githubToken, githubUser, hydrated]);
 
   useEffect(() => {
     if (!active && chats.length) setActive(chats[0].id);
@@ -553,7 +429,7 @@ export default function Home() {
     }
   }
 
-  // Send reverse engineering prompt directly to OpenCode / Groq Chat
+  // Send reverse engineering prompt to the configured execution engine / Groq
   function sendReversePromptToChat() {
     if (!reverseResult || !zip) return;
     const text = "Faça uma recriação Clean-Room do ZIP anexado. Preserve a estrutura técnica e os arquivos necessários, atualize o README, implemente o projeto funcional com identidade visual original e entregue um novo ZIP completo. Trabalhe somente com conteúdo que tenho autorização para modificar.";
@@ -618,9 +494,6 @@ export default function Home() {
         const form = new FormData();
         form.append("prompt", task.text || "Analise e organize o projeto anexado.");
         form.append("model", model);
-        if (apiKeys.groq) form.append("groqApiKey", apiKeys.groq);
-        if (apiKeys.customServerUrl) form.append("customServerUrl", apiKeys.customServerUrl);
-        if (apiKeys.customServerPassword) form.append("customServerPassword", apiKeys.customServerPassword);
         if (zipAttachment) form.append("archive", zipAttachment);
         else if (previousWorkspace) form.append("archiveBase64", previousWorkspace.base64);
 
@@ -660,9 +533,6 @@ export default function Home() {
             clientChatId: task.chatId,
             message: task.text || `Analise os arquivos anexados: ${names.join(", ")}`,
             model,
-            customServerUrl: apiKeys.customServerUrl || undefined,
-            customServerPassword: apiKeys.customServerPassword || undefined,
-            userApiKeys: apiKeys,
           }),
         });
         const data = await response.json();
@@ -731,67 +601,30 @@ export default function Home() {
   }
 
   // GitHub Auth
-  async function connectGitHubToken() {
-    if (!tokenInput.trim()) {
-      setAuthFeedback({ type: "error", text: "Cole sua frase de token do GitHub." });
-      return;
-    }
+  async function connectManagedGitHub() {
     setVerifyingToken(true);
     setAuthFeedback(null);
     try {
       const res = await fetch("/api/github/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: tokenInput.trim() }),
+        body: JSON.stringify({}),
       });
       const data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Falha ao validar token do GitHub.");
-      }
-      setGithubToken(tokenInput.trim());
+      if (!res.ok || !data.ok) throw new Error(data.error || "A integração GitHub ainda não foi habilitada pela administração.");
       setGithubUser(data.user);
-      setAuthFeedback({
-        type: "success",
-        text: `Conectado com sucesso como @${data.user.login}!`,
-      });
-      setTimeout(() => setGithubAuthModal(false), 1200);
+      setAuthFeedback({ type: "success", text: `Integração da plataforma ativa como @${data.user.login}.` });
+      setTimeout(() => setGithubAuthModal(false), 1500);
     } catch (err) {
-      setAuthFeedback({
-        type: "error",
-        text: err instanceof Error ? err.message : "Erro desconhecido ao conectar.",
-      });
+      setAuthFeedback({ type: "error", text: err instanceof Error ? err.message : "Não foi possível verificar a integração." });
     } finally {
       setVerifyingToken(false);
     }
   }
 
   function disconnectGitHub() {
-    setGithubToken("");
     setGithubUser(null);
-    setTokenInput("");
     setAuthFeedback(null);
-  }
-
-  async function saveCustomApiKeys() {
-    setApiSaveError("");
-    setApiSavedNotice(false);
-    if (apiKeys.groq.trim()) {
-      try {
-        const check = await fetch("/api/groq/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ apiKey: apiKeys.groq.trim() }),
-        });
-        const result = await check.json();
-        if (!check.ok) throw new Error(result.error || "A Groq não aceitou essa API key.");
-      } catch (error) {
-        setApiSaveError(error instanceof Error ? error.message : "Não foi possível validar a API key.");
-        return;
-      }
-    }
-    localStorage.setItem(API_KEYS_STORE, JSON.stringify(apiKeys));
-    setApiSavedNotice(true);
-    setTimeout(() => setApiSavedNotice(false), 3500);
   }
 
   // Publish to GitHub via Git Trees API
@@ -807,15 +640,7 @@ export default function Home() {
       fd.append("archive", zip);
       fd.append("repository", repo.trim());
       fd.append("branch", branch.trim());
-      fd.append("notifyOpenCode", "true");
-      if (githubToken) {
-        fd.append("token", githubToken);
-      }
-      const r = await fetch("/api/github/publish", {
-        method: "POST",
-        headers: githubToken ? { "x-github-token": githubToken } : undefined,
-        body: fd,
-      });
+      const r = await fetch("/api/github/publish", { method: "POST", body: fd });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Falha ao publicar");
       setPublishNotice(d.message || "Publicação concluída com sucesso via Git Trees API.");
@@ -828,21 +653,12 @@ export default function Home() {
 
   const sorted = useMemo(() => [...chats].sort((a, b) => b.updatedAt - a.updatedAt), [chats]);
 
-  const configuredKeysCount = [
-    apiKeys.groq,
-    apiKeys.openai,
-    apiKeys.anthropic,
-    apiKeys.gemini,
-    githubToken,
-    apiKeys.customServerUrl,
-  ].filter(Boolean).length;
-
   return (
     <main className="shell">
       {/* ============================================================
           TOPBAR (CLEAN, MINIMAL & STRICTLY RESPONSIVE)
-          - Desktop: "OpenCode" title, tabs and primary actions.
-          - Mobile (<=768px): ONLY hamburger (☰) and "OpenCode".
+          - Desktop: nome da plataforma, abas e ações principais.
+          - Mobile (<=768px): menu compacto e nome da plataforma.
           ============================================================ */}
       <header className="topbar">
         <div className="topbar-left">
@@ -875,13 +691,6 @@ export default function Home() {
               Chat
             </button>
             <button
-              className={tab === "connectors" ? "active" : ""}
-              onClick={() => { setTab("connectors"); if (!connectorProviders.length) void loadConnectors(""); }}
-            >
-              <Blocks size={14} />
-              Conectores
-            </button>
-            <button
               className={tab === "reverse" ? "active" : ""}
               onClick={() => setTab("reverse")}
             >
@@ -907,22 +716,7 @@ export default function Home() {
 
         {/* Desktop Only Actions (Hidden on Mobile) */}
         <div className="topbar-desktop-actions">
-          {/* BYOK API Keys Button */}
-          <button
-            className={`header-btn ${configuredKeysCount > 0 ? "highlight" : ""}`}
-            onClick={() => setApiModal(true)}
-            title="Conectar chaves de API próprias (Groq, OpenAI, etc.)"
-          >
-            <Key size={13} />
-            <span>Minhas APIs</span>
-            {configuredKeysCount > 0 && (
-              <span className="brand-tag">
-                {configuredKeysCount}
-              </span>
-            )}
-          </button>
-
-          {/* GitHub Connection Button */}
+          {/* GitHub connection */}
           <button
             className={`header-btn ${githubUser ? "connected" : ""}`}
             onClick={() => setGithubAuthModal(true)}
@@ -992,21 +786,8 @@ export default function Home() {
                 }}
               >
                 <MessageSquare size={15} />
-                <span>Chat OpenCode</span>
+                <span>Chat de desenvolvimento</span>
                 {chats.length > 0 && <span className="badge">{chats.length}</span>}
-              </button>
-
-              <button
-                className={`drawer-item ${tab === "connectors" ? "active" : ""}`}
-                onClick={() => {
-                  setTab("connectors");
-                  if (!connectorProviders.length) void loadConnectors("");
-                  setDrawerOpen(false);
-                }}
-              >
-                <Blocks size={15} />
-                <span>Central de Conectores</span>
-                <span className="badge">1k+</span>
               </button>
 
               <button
@@ -1080,18 +861,6 @@ export default function Home() {
               <button
                 className="drawer-item"
                 onClick={() => {
-                  setApiModal(true);
-                  setDrawerOpen(false);
-                }}
-              >
-                <Key size={15} />
-                <span>Minhas APIs (Groq / OpenAI)</span>
-                {configuredKeysCount > 0 && <span className="badge">{configuredKeysCount}</span>}
-              </button>
-
-              <button
-                className="drawer-item"
-                onClick={() => {
                   setGithubAuthModal(true);
                   setDrawerOpen(false);
                 }}
@@ -1121,7 +890,7 @@ export default function Home() {
           ============================================================ */}
       <section className="main-view">
         {/* ============================================================
-            TAB 1: CHAT COM SUPORTE A GROQ MULTI-MODEL FALLBACK & OPENCODE
+            TAB 1: CHAT COM MODELOS E MOTOR DE EXECUÇÃO
             ============================================================ */}
         {tab === "chat" && (
           <>
@@ -1133,8 +902,7 @@ export default function Home() {
                   </div>
                   <h1>O que vamos construir hoje?</h1>
                   <p>
-                    OpenCode integrado aos modelos de altíssima velocidade da <b>Groq</b> e ao executor
-                    autônomo. Escolha um modelo e envie suas instruções.
+                    Modelos de IA conectados ao motor de execução da plataforma. Escolha um modelo e envie suas instruções.
                   </p>
                   <div className="chat-suggestions">
                     <button
@@ -1286,7 +1054,7 @@ export default function Home() {
                       }}
                     />
 
-                    {/* Model Selector with Groq & OpenCode options */}
+                    {/* Model Selector with provider options */}
                     <select
                       className="dark-model-select"
                       value={model}
@@ -1331,96 +1099,6 @@ export default function Home() {
         )}
 
         {/* ============================================================
-            TAB: CENTRAL DE CONECTORES OPENCONNECTOR
-            ============================================================ */}
-        {tab === "connectors" && (
-          <div className="dark-tool-page connectors-page">
-            <div className="connectors-hero">
-              <div>
-                <div className="connectors-eyebrow"><Blocks size={14} /> OPENCONNECTOR · INTEGRAÇÕES</div>
-                <h1>Central de Conectores</h1>
-                <p>Explore aplicativos e ações que a IA poderá utilizar após a autorização das contas.</p>
-              </div>
-              <div className="connectors-count"><b>1.000+</b><span>provedores anunciados</span></div>
-            </div>
-
-            <div className="connectors-toolbar">
-              <div className="connectors-search">
-                <Search size={16} />
-                <input
-                  value={connectorQuery}
-                  onChange={(event) => setConnectorQuery(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === "Enter") void loadConnectors(connectorQuery); }}
-                  placeholder="Buscar aplicativos: GitHub, Gmail, Notion..."
-                />
-                {connectorQuery && <button className="iconbtn" onClick={() => { setConnectorQuery(""); void loadConnectors(""); }} title="Limpar busca"><X size={14}/></button>}
-              </div>
-              <button className="btn-opencode-primary" onClick={() => void loadConnectors(connectorQuery)} disabled={connectorLoading}>
-                <RefreshCw size={14} className={connectorLoading ? "spin" : ""}/> {connectorLoading ? "Carregando" : "Buscar conectores"}
-              </button>
-            </div>
-
-            {!connectorConfigured && (
-              <div className="dark-notice-box neutral">
-                <AlertCircle size={17}/>
-                <div><b>OpenConnector ainda não configurado.</b><small>Adicione OPENCONNECTOR_BASE_URL e OPENCONNECTOR_ADMIN_TOKEN na Vercel. O serviço precisa estar instalado no VPS. Consulte deploy/OPENCONNECTOR.md.</small></div>
-              </div>
-            )}
-            {connectorError && <div className="dark-notice-box neutral"><AlertCircle size={16}/><div>{connectorError}</div></div>}
-
-            {selectedConnector && (
-              <div className="connector-detail-panel">
-                <div className="connector-detail-head">
-                  <div><span className="connectors-eyebrow">APLICATIVO SELECIONADO</span><h2>{selectedConnector.provider?.name || selectedConnector.provider?.displayName || selectedConnector.provider?.id || "Aplicativo"}</h2></div>
-                  <button className="iconbtn" onClick={() => setSelectedConnector(null)} title="Fechar detalhes"><X size={16}/></button>
-                </div>
-                <p className="connector-detail-description">Ações disponíveis no catálogo para este aplicativo:</p>
-                {selectedConnector.actions.length ? <div className="connector-action-list">{selectedConnector.actions.slice(0, 80).map((action: any, index: number) => <div className="connector-action-row" key={action.id || action.actionId || index}><div><b>{action.name || action.title || action.id || action.actionId || `Ação ${index + 1}`}</b><small>{action.description || action.summary || action.id || action.actionId || "Ação disponível no catálogo"}</small></div><code>{action.id || action.actionId || "action"}</code></div>)}</div> : <div className="provider-empty">Nenhuma ação retornada para este aplicativo.</div>}
-              </div>
-            )}
-
-            {connectorActions.length > 0 && connectorQuery.trim() && (
-              <div className="connector-detail-panel">
-                <div className="connector-detail-head"><div><span className="connectors-eyebrow">RESULTADOS DE AÇÕES</span><h2>Ações encontradas</h2></div><button className="iconbtn" onClick={() => setConnectorActions([])}><X size={16}/></button></div>
-                <div className="connector-action-list">{connectorActions.slice(0, 60).map((action: any, index: number) => <div className="connector-action-row" key={action.id || index}><div><b>{action.name || action.title || action.id || "Ação"}</b><small>{action.description || action.summary || "Ação disponível no catálogo"}</small></div><code>{action.id || action.actionId || ""}</code></div>)}</div>
-              </div>
-            )}
-
-            <div className="connectors-section-title"><div><h2>Catálogo de aplicativos</h2><p>{connectorProviders.length ? `${connectorProviders.length} provedores retornados pelo seu runtime` : "Carregue o catálogo para explorar as integrações"}</p></div><span>OAuth · API Key · MCP · HTTP</span></div>
-            {connectorProviders.length > 0 ? (
-              <div className="connector-provider-grid">
-                {connectorProviders.filter((provider: any) => {
-                  const name = `${provider.name || ""} ${provider.id || provider.service || ""} ${provider.description || ""}`.toLowerCase();
-                  return !connectorQuery.trim() || name.includes(connectorQuery.toLowerCase());
-                }).slice(0, 180).map((provider: any, index: number) => {
-                  const id = provider.id || provider.service || provider.slug || `provider-${index}`;
-                  const name = provider.name || provider.displayName || provider.title || id;
-                  const authEntries = Array.isArray(provider.authMethods) ? provider.authMethods : Array.isArray(provider.auth) ? provider.auth : Array.isArray(provider.credentials) ? provider.credentials : [];
-                  const auth = authEntries.map((item: any) => typeof item === "string" ? item : item.label || item.type).filter(Boolean).join(" · ") || "Conexão gerenciada";
-                  return <button className="connector-provider-card" key={id} onClick={() => void loadConnectorDetails(id)}>
-                    <span className="connector-provider-icon"><Blocks size={19}/></span>
-                    <span className="connector-provider-copy"><b>{name}</b><small>{provider.description || auth}</small><code>{id}</code></span>
-                    <ArrowUpRight size={15}/>
-                  </button>;
-                })}
-              </div>
-            ) : !connectorLoading && connectorConfigured ? (
-              <div className="connector-empty"><Blocks size={28}/><b>Nenhum provedor carregado</b><span>Verifique o runtime OpenConnector e atualize o catálogo.</span></div>
-            ) : null}
-
-            <div className="dark-notice-box neutral connector-security-note">
-              <ShieldCheck size={17}/>
-              <div><b>Segurança e contas individuais</b><small>O catálogo é público para consulta, mas credenciais e conexões ficam no servidor. Antes de liberar OAuth para cada cliente, o OpenCodeLab precisa de autenticação de usuários e isolamento de conexões por conta. Não compartilhe uma conexão administrativa entre clientes.</small></div>
-            </div>
-            <div className="connectors-footer-actions">
-              <a className="header-btn" href="https://github.com/oomol-lab/open-connector" target="_blank" rel="noreferrer"><Github size={14}/> Repositório oficial <ExternalLink size={12}/></a>
-              <a className="header-btn" href="https://openconnector.io/docs/" target="_blank" rel="noreferrer">Documentação <ExternalLink size={12}/></a>
-              {connectorConsoleUrl && <a className="header-btn" href={connectorConsoleUrl} target="_blank" rel="noreferrer"><Link2 size={14}/> Console do servidor <ExternalLink size={12}/></a>}
-            </div>
-          </div>
-        )}
-
-        {/* ============================================================
             TAB 2: ENGENHARIA REVERSA ÉTICA DE ZIP & ENVIO AO GITHUB
             (Bug visual corrigido e validação completa)
             ============================================================ */}
@@ -1432,7 +1110,7 @@ export default function Home() {
               </h1>
               <p style={{ color: "var(--text-muted)", margin: 0, fontSize: "13.5px" }}>
                 Análise despersonalizada (Clean-Room) de arquivos ZIP e envio automatizado para o GitHub
-                através da Git Trees API com integração ao OpenCode.
+                através da Git Trees API com o conector GitHub.
               </p>
             </div>
 
@@ -1714,15 +1392,13 @@ export default function Home() {
             <div className="presentation-hero">
               <div className="presentation-badge">
                 <i />
-                OPENCODE COMPANION · WEB UI
+                AGENTES · CLOUD · DESENVOLVIMENTO
               </div>
 
               <h1 className="presentation-title">OpenUI Code Code</h1>
 
               <p className="presentation-subtitle">
-                A interface visual definitiva para o ecossistema <b>OpenCode</b>. Equipada com múltiplos modelos
-                de altíssima velocidade da <b>Groq</b>, engenharia reversa ética (clean-room), publicação via Git Trees
-                e biblioteca para <b>20.000 skills</b>.
+                Um espaço de trabalho para quem quer usar agentes de IA, ferramentas de desenvolvimento e serviços cloud sem se perder em configurações. Reúna modelos, projetos, skills e fluxos de trabalho em uma experiência integrada.
               </p>
 
               <div className="presentation-actions">
@@ -1734,23 +1410,9 @@ export default function Home() {
                   Abrir Chat do CodeCode
                 </button>
 
-                <button
-                  className="btn-opencode-secondary"
-                  onClick={() => setApiModal(true)}
-                >
-                  <Key size={15} />
-                  Configurar Minhas APIs (BYOK)
+                <button className="btn-opencode-secondary" onClick={() => setSettings(true)}>
+                  <Puzzle size={15} /> Explorar integrações
                 </button>
-
-                <a
-                  href="https://github.com/opencode-ai/opencode"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="btn-opencode-secondary"
-                >
-                  <Github size={15} />
-                  github.com/OpenCode <ExternalLink size={12} />
-                </a>
               </div>
 
               <div className="presentation-socials">
@@ -1762,6 +1424,66 @@ export default function Home() {
                 </a>
               </div>
             </div>
+
+            <section className="brand-showcase" aria-label="Ecossistema de inteligência artificial, cloud e desenvolvimento">
+              <div className="section-eyebrow">ECOSSISTEMA CONECTADO</div>
+              <h2>As ferramentas que você já conhece. Em um só espaço.</h2>
+              <p>Modelos de IA, plataformas de desenvolvimento e infraestrutura cloud para organizar seu fluxo de trabalho. As marcas são de seus respectivos proprietários; não indicam parceria ou endosso.</p>
+
+              <div className="brand-group">
+                <h3>Inteligência artificial</h3>
+                <div className="brand-logo-grid">
+                  {[
+                    ["Grok", "grok", "FFFFFF", "G"],
+                    ["OpenAI", "openai", "FFFFFF", "◎"],
+                    ["Gemini", "googlegemini", "8E75B2", "G"],
+                    ["Claude", "anthropic", "D97757", "C"],
+                    ["Groq", "groq", "F55036", "G"],
+                    ["Mistral", "mistralai", "F7D046", "M"]
+                  ].map(([name, slug, color, fallback]) => (
+                    <div className="brand-logo-card" key={name} title={name}>
+                      <span className="brand-logo-fallback">{fallback}</span>
+                      <img
+                        src={`https://cdn.simpleicons.org/${slug}/${color}`}
+                        alt={`${name} logo`}
+                        loading="lazy"
+                        onError={(event) => { event.currentTarget.style.display = "none"; }}
+                      />
+                      <span>{name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="brand-group">
+                <h3>Cloud, infraestrutura e desenvolvimento</h3>
+                <div className="brand-logo-grid">
+                  {[
+                    ["GitHub", "github", "FFFFFF", "GH"],
+                    ["AWS", "amazonaws", "FF9900", "AWS"],
+                    ["Google Cloud", "googlecloud", "4285F4", "GCP"],
+                    ["Docker", "docker", "2496ED", "D"],
+                    ["Linux", "linux", "FCC624", "L"],
+                    ["Python", "python", "3776AB", "Py"],
+                    ["Node.js", "nodedotjs", "5FA04E", "N"],
+                    ["React", "react", "61DAFB", "R"],
+                    ["Vercel", "vercel", "FFFFFF", "▲"]
+                  ].map(([name, slug, color, fallback]) => (
+                    <div className="brand-logo-card" key={name} title={name}>
+                      <span className="brand-logo-fallback">{fallback}</span>
+                      <img
+                        src={`https://cdn.simpleicons.org/${slug}/${color}`}
+                        alt={`${name} logo`}
+                        loading="lazy"
+                        onError={(event) => { event.currentTarget.style.display = "none"; }}
+                      />
+                      <span>{name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <small className="brand-assets-note">Ícones vetoriais transparentes do projeto Simple Icons. As marcas e logotipos pertencem aos seus respectivos titulares.</small>
+            </section>
 
             <section className="tech-showcase" aria-label="Tecnologias utilizadas">
               <div className="section-eyebrow">TECNOLOGIAS E ECOSSISTEMA</div>
@@ -1787,35 +1509,13 @@ export default function Home() {
               <p>Conheça ferramentas open source que ajudam a reduzir contexto redundante, compactar saídas e aproveitar melhor a janela de cada modelo. Os resultados variam conforme o projeto e a tarefa.</p>
               <a className="token-repo-card" href="https://github.com/rtk-ai/rtk" target="_blank" rel="noreferrer">
                 <span className="token-repo-icon"><Zap size={21}/></span>
-                <span><b>RTK · Rust Token Killer</b><small>Filtra e compacta saídas de comandos de desenvolvimento antes que cheguem ao contexto da IA; o projeto oferece integração com OpenCode.</small><em>github.com/rtk-ai/rtk</em></span>
+                <span><b>RTK · Rust Token Killer</b><small>Filtra e compacta saídas de comandos de desenvolvimento antes que cheguem ao contexto da IA; o projeto oferece integração com diferentes fluxos de desenvolvimento.</small><em>github.com/rtk-ai/rtk</em></span>
                 <ExternalLink size={15}/>
               </a>
-              <p className="token-repo-note">Referência open source de economia de tokens com suporte ao OpenCode. Se o vídeo do Instagram mencionar outro projeto, posso trocar pelo repositório exato quando você enviar o perfil ou o link.</p>
+              <p className="token-repo-note">Ferramenta independente de código aberto. A disponibilidade e os ganhos dependem da configuração e do tipo de tarefa.</p>
             </section>
 
-            {/* Official OpenCode Credits Banner */}
-            <div className="credits-banner">
-              <div className="credits-banner-text">
-                <h3>
-                  <Sparkles size={17} style={{ color: "var(--accent-text)" }} />
-                  Créditos e Reconhecimento ao OpenCode
-                </h3>
-                <p>
-                  O <b>OpenUI Code Code</b> foi concebido em homenagem e como cliente visual para o ecossistema{" "}
-                  <b>OpenCode</b>. Todos os méritos de motor de agente são atribuídos ao projeto oficial.
-                </p>
-              </div>
-              <a
-                href="https://github.com/opencode-ai/opencode"
-                target="_blank"
-                rel="noreferrer"
-                className="credits-link-btn"
-              >
-                <Github size={14} /> github.com/OpenCode <ExternalLink size={12} />
-              </a>
-            </div>
-
-            {/* 4 Feature Cards */}
+            {/* Feature Cards */}
             <div className="features-grid">
               <div className="feature-card">
                 <div className="feature-icon-wrap">
@@ -1881,251 +1581,29 @@ export default function Home() {
       </section>
 
       {/* ============================================================
-          MODAL 1: BYOK - GERENCIADOR DE CHAVES DE API (GROQ / OPENAI)
-          ============================================================ */}
-      {apiModal && (
-        <div className="dark-modal-backdrop" onClick={() => setApiModal(false)}>
-          <div className="dark-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="dark-modal-head">
-              <div>
-                <h2>
-                  <Key size={18} style={{ color: "var(--accent-text)" }} /> Minhas Chaves de API (BYOK)
-                </h2>
-                <p>
-                  Configure suas próprias chaves de API com armazenamento seguro no navegador (localStorage).
-                </p>
-              </div>
-              <button className="iconbtn" onClick={() => setApiModal(false)}>
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Groq Key */}
-            <div className="dark-modal-section">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <label style={{ margin: 0 }}>Chave Groq API (gsk_...)</label>
-                <a
-                  href="https://console.groq.com/keys"
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ fontSize: "11px", color: "var(--accent-text)", textDecoration: "none" }}
-                >
-                  Obter chave grátis na Groq ↗
-                </a>
-              </div>
-              <input
-                type="password"
-                value={apiKeys.groq}
-                onChange={(e) => setApiKeys({ ...apiKeys, groq: e.target.value })}
-                placeholder="gsk_..."
-                autoComplete="off"
-              />
-              <span style={{ fontSize: "11px", color: "var(--text-dim)" }}>
-                Conecta sua conta Groq. O catálogo e o fallback usam modelos atualmente ativos na API oficial.
-              </span>
-            </div>
-
-            {/* OpenAI Key */}
-            <div className="dark-modal-section">
-              <label>Chave OpenAI API (sk-...)</label>
-              <input
-                type="password"
-                value={apiKeys.openai}
-                onChange={(e) => setApiKeys({ ...apiKeys, openai: e.target.value })}
-                placeholder="sk-proj-..."
-                autoComplete="off"
-              />
-            </div>
-
-            {/* Gemini Key */}
-            <div className="dark-modal-section">
-              <label>Chave Google Gemini API (AIza...)</label>
-              <input
-                type="password"
-                value={apiKeys.gemini}
-                onChange={(e) => setApiKeys({ ...apiKeys, gemini: e.target.value })}
-                placeholder="AIzaSy..."
-                autoComplete="off"
-              />
-            </div>
-
-            {/* Custom OpenCode Server Endpoint */}
-            <div className="dark-modal-section">
-              <label>URL do Servidor OpenCode Privado (Opcional)</label>
-              <input
-                type="text"
-                value={apiKeys.customServerUrl}
-                onChange={(e) => setApiKeys({ ...apiKeys, customServerUrl: e.target.value })}
-                placeholder="http://127.0.0.1:4096 ou https://meu-opencode.run.app"
-              />
-              <label style={{ marginTop: "6px" }}>Senha do Servidor OpenCode</label>
-              <input
-                type="password"
-                value={apiKeys.customServerPassword}
-                onChange={(e) => setApiKeys({ ...apiKeys, customServerPassword: e.target.value })}
-                placeholder="Senha de acesso ao executor"
-              />
-            </div>
-
-            {apiSaveError && <div className="dark-notice-box error" style={{ marginBottom: "12px" }}><AlertCircle size={15} /><span>{apiSaveError}</span></div>}
-            {apiSavedNotice && (
-              <div className="dark-notice-box info" style={{ marginBottom: "12px" }}>
-                <CheckCircle2 size={15} />
-                <span>Chaves salvas neste navegador. Quando informada, a chave Groq foi validada antes de salvar.</span>
-              </div>
-            )}
-
-            <div className="dark-modal-foot">
-              <button className="header-btn" onClick={() => setApiModal(false)}>
-                Fechar
-              </button>
-              <button className="btn-opencode-primary" onClick={saveCustomApiKeys}>
-                <Check size={14} /> Salvar Chaves
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================
-          MODAL 2: GITHUB AUTHENTICATION
+          MODAL: GITHUB CONNECTOR
           ============================================================ */}
       {githubAuthModal && (
         <div className="dark-modal-backdrop" onClick={() => setGithubAuthModal(false)}>
           <div className="dark-modal" onClick={(e) => e.stopPropagation()}>
             <div className="dark-modal-head">
               <div>
-                <h2>
-                  <Github size={18} /> Autenticar no GitHub
-                </h2>
-                <p>
-                  Gere um Personal Access Token único no GitHub com permissão <code>repo</code> para publicar
-                  projetos automaticamente.
-                </p>
+                <h2><Github size={18} /> Integração GitHub</h2>
+                <p>Conexão centralizada, sem pedir token ou chave pessoal ao usuário.</p>
               </div>
-              <button className="iconbtn" onClick={() => setGithubAuthModal(false)}>
-                <X size={16} />
-              </button>
+              <button className="iconbtn" onClick={() => setGithubAuthModal(false)}><X size={16} /></button>
             </div>
-
-            {githubUser && (
-              <div
-                className="dark-modal-section"
-                style={{
-                  background: "rgba(34, 197, 94, 0.1)",
-                  borderColor: "rgba(34, 197, 94, 0.3)",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <img
-                    src={githubUser.avatar_url}
-                    alt={githubUser.login}
-                    style={{ width: 40, height: 40, borderRadius: "50%", border: "2px solid #22c55e" }}
-                  />
-                  <div>
-                    <div style={{ fontSize: "13.5px", fontWeight: "700", color: "#4ade80" }}>
-                      Conectado como @{githubUser.login}
-                    </div>
-                    <div style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
-                      {githubUser.name ? `${githubUser.name} · ` : ""}
-                      {githubUser.public_repos !== undefined ? `${githubUser.public_repos} repositórios` : "Autenticado"}
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
-                  <a
-                    href={githubUser.html_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="header-btn"
-                    style={{ fontSize: "11.5px", textDecoration: "none" }}
-                  >
-                    Ver perfil <ExternalLink size={11} />
-                  </a>
-                  <button
-                    className="header-btn"
-                    onClick={disconnectGitHub}
-                    style={{ color: "#ef4444", borderColor: "rgba(239, 68, 68, 0.3)" }}
-                  >
-                    <LogOut size={12} /> Desconectar
-                  </button>
-                </div>
-              </div>
-            )}
-
+            {githubUser && <div className="dark-modal-section"><b>Conector ativo: @{githubUser.login}</b><p>Esta é a conta configurada pela administração da plataforma.</p><button className="header-btn" onClick={disconnectGitHub}>Limpar estado local</button></div>}
             <div className="dark-modal-section">
-              <div style={{ fontSize: "12.5px", fontWeight: 700, color: "#ffffff", display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className="brand-tag">PASSO 1</span> Gerar token no GitHub
-              </div>
-              <p style={{ fontSize: "12px", color: "var(--text-muted)", margin: 0 }}>
-                Clique para abrir a página do GitHub com as permissões pré-configuradas:
-              </p>
-              <a
-                href="https://github.com/settings/tokens/new?scopes=repo,read:user,user:email&description=OpenCode+Workspace"
-                target="_blank"
-                rel="noreferrer"
-                className="header-btn highlight"
-                style={{ width: "max-content", textDecoration: "none" }}
-              >
-                <Github size={14} />
-                Abrir página de tokens do GitHub <ExternalLink size={12} />
-              </a>
+              <b>Conector gerenciado pela plataforma</b>
+              <p>Quando o administrador configurar a integração segura no servidor, você poderá publicar projetos sem criar ou colar tokens pessoais.</p>
+              <small>Se a integração ainda não estiver configurada, a publicação permanecerá indisponível. Não solicitaremos sua chave pessoal.</small>
             </div>
-
-            <div className="dark-modal-section">
-              <div style={{ fontSize: "12.5px", fontWeight: 700, color: "#ffffff", display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className="brand-tag">PASSO 2</span> Cole o token pessoal
-              </div>
-              <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
-                <input
-                  type={showToken ? "text" : "password"}
-                  value={tokenInput}
-                  onChange={(e) => setTokenInput(e.target.value)}
-                  placeholder="ghp_... ou github_pat_..."
-                  autoComplete="off"
-                  spellCheck={false}
-                  style={{ paddingRight: "40px" }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowToken(!showToken)}
-                  style={{
-                    position: "absolute",
-                    right: "10px",
-                    background: "none",
-                    border: 0,
-                    color: "var(--text-dim)",
-                    cursor: "pointer",
-                  }}
-                >
-                  {showToken ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
-            </div>
-
-            {authFeedback && (
-              <div
-                className={`dark-notice-box ${
-                  authFeedback.type === "success" ? "info" : "warning"
-                }`}
-                style={{ marginBottom: "10px" }}
-              >
-                {authFeedback.type === "success" ? <Check size={15} /> : <AlertCircle size={15} />}
-                <span>{authFeedback.text}</span>
-              </div>
-            )}
-
+            {authFeedback && <div className={`dark-notice-box ${authFeedback.type === "success" ? "info" : "warning"}`}><span>{authFeedback.text}</span></div>}
             <div className="dark-modal-foot">
-              <button className="header-btn" onClick={() => setGithubAuthModal(false)}>
-                Fechar
-              </button>
-              <button
-                className="btn-opencode-primary"
-                onClick={connectGitHubToken}
-                disabled={verifyingToken || !tokenInput.trim()}
-              >
-                <Key size={13} />
-                {verifyingToken ? "Verificando..." : "Conectar Token"}
+              <button className="header-btn" onClick={() => setGithubAuthModal(false)}>Fechar</button>
+              <button className="btn-opencode-primary" onClick={connectManagedGitHub} disabled={verifyingToken}>
+                <Github size={14} /> {verifyingToken ? "Verificando..." : "Verificar conector"}
               </button>
             </div>
           </div>
@@ -2200,7 +1678,7 @@ export default function Home() {
             <div className="dark-modal-head">
               <div>
                 <h2><Settings2 size={18} /> Central de modelos e roteamento</h2>
-                <p>Pesquise, conecte provedores e escolha o modelo sem abrir o terminal.</p>
+                <p>Pesquise os modelos habilitados pela plataforma e escolha o modelo de trabalho.</p>
               </div>
               <button className="iconbtn" onClick={() => setSettings(false)}><X size={16} /></button>
             </div>
@@ -2208,7 +1686,7 @@ export default function Home() {
             <div className="model-console">
               <div className="model-console-bar">
                 <span className="console-dot" /><span className="console-dot" /><span className="console-dot" />
-                <span className="console-path">OpenCode / models / providers</span>
+                <span className="console-path">Modelos / provedores / roteamento</span>
                 <span className="console-live">CATÁLOGO</span>
               </div>
               <label className="model-search-box">
@@ -2226,7 +1704,7 @@ export default function Home() {
                 <button className="btn-opencode-primary" onClick={startNineRouter} disabled={routerBusy}>
                   <Zap size={14} /> {routerBusy ? "Conectando..." : routerDefaultModel && model === `9router/${routerDefaultModel}` && routerStatus === "ready" ? "9Router ativo" : "Start 9Router"}
                 </button>
-                <span><Database size={13} /> OpenCode + 9Router</span>
+                <span><Database size={13} /> Motor de execução + 9Router</span>
               </div>
               <div className="dark-notice-box neutral" style={{ marginTop: 10 }}>
                 <Zap size={15} style={{ flexShrink: 0 }} />
@@ -2235,12 +1713,12 @@ export default function Home() {
               {routerFeedback && <p className="provider-feedback">{routerFeedback}</p>}
             </div>
 
-            {providerError && <div className="dark-notice-box neutral" style={{ marginTop: 12 }}><AlertCircle size={16} /> <div>{providerError}<br /><small>Verifique se o OpenCode está ativo e se OPENCODE_SERVER_URL aponta para ele.</small></div></div>}
+            {providerError && <div className="dark-notice-box neutral" style={{ marginTop: 12 }}><AlertCircle size={16} /> <div>{providerError}<br /><small>Verifique se o motor de execução está ativo e se o servidor foi configurado pela administração.</small></div></div>}
 
             <div className="provider-manager-grid">
               <section className="provider-list-panel">
                 <div className="provider-panel-title"><b><PlugZap size={15} /> Provedores</b><span>{visibleProviders.length} disponíveis</span></div>
-                {providerLoading && <p className="provider-empty">Consultando o servidor OpenCode...</p>}
+                {providerLoading && <p className="provider-empty">Consultando o catálogo de modelos...</p>}
                 {!providerLoading && visibleProviders.map((provider) => (
                   <button key={provider.id} className={`provider-row ${activeProvider === provider.id ? "active" : ""}`} onClick={() => { setActiveProvider(provider.id); setProviderFeedback(""); }}>
                     <span className="provider-avatar">{provider.name.slice(0, 1).toUpperCase()}</span>
@@ -2254,10 +1732,8 @@ export default function Home() {
               <section className="provider-detail-panel">
                 <div className="provider-panel-title"><b><Cpu size={15} /> Modelos disponíveis</b><span>{visibleModels.length} modelos</span></div>
                 {selectedProviderInfo ? <>
-                  <div className="provider-detail-heading"><div><h3>{selectedProviderInfo.name}</h3><p>{selectedProviderInfo.connected ? "Sua conta já está conectada ao OpenCode." : "Conecte sua conta para habilitar os modelos."}</p></div><span className={`provider-state ${selectedProviderInfo.connected ? "connected" : ""}`}>{selectedProviderInfo.connected ? "Conectado" : "Não conectado"}</span></div>
-                  {!selectedProviderInfo.connected && selectedProviderHasApiKey && <div className="provider-connect-box"><label>API key do {selectedProviderInfo.name}</label><div className="provider-key-row"><input type="password" value={providerApiKey} onChange={(e) => setProviderApiKey(e.target.value)} placeholder="Cole sua API key aqui" autoComplete="off"/><button className="btn-opencode-primary" disabled={providerSaving || !providerApiKey.trim()} onClick={connectProvider}>{providerSaving ? "Conectando..." : "Conectar"}</button></div><small>A credencial é enviada ao servidor OpenCode e salva no cofre de autenticação dele. Não é exibida na lista de modelos.</small></div>}
-                  {!selectedProviderInfo.connected && !selectedProviderHasApiKey && selectedProviderHasOAuth && <div className="provider-connect-box"><b>Autenticação por conta (OAuth)</b><small>Este provedor exige autorização da conta. Conclua a conexão pelo fluxo oficial do OpenCode (/connect) no servidor vinculado; esta tela não pede sua senha nem simula uma conexão OAuth.</small></div>}
-                  {(selectedProviderInfo.id === "opencode" || selectedProviderInfo.id === "opencode-go") && <div className="provider-connect-box"><b>Conta e créditos oficiais OpenCode</b><small>Para comprar créditos ou assinar o plano Go, abra o ambiente oficial do OpenCode. Depois, copie sua chave e conecte aqui.</small><div className="opencode-account-links"><a href="https://opencode.ai/console" target="_blank" rel="noreferrer">Abrir OpenCode Console <ExternalLink size={11}/></a><a href="https://opencode.ai/docs/console/go" target="_blank" rel="noreferrer">Conhecer OpenCode Go <ExternalLink size={11}/></a></div></div>}
+                  <div className="provider-detail-heading"><div><h3>{selectedProviderInfo.name}</h3><p>{selectedProviderInfo.connected ? "Conexão administrada pela plataforma." : "A disponibilidade depende da configuração da plataforma."}</p></div><span className={`provider-state ${selectedProviderInfo.connected ? "connected" : ""}`}>{selectedProviderInfo.connected ? "Conectado" : "Não conectado"}</span></div>
+                  {!selectedProviderInfo.connected && <div className="provider-connect-box"><b>Conexão administrada pela plataforma</b><small>Você não precisa inserir API key. Este provedor só ficará disponível quando a administração habilitar uma conexão segura ou um fluxo oficial de autorização.</small></div>}
                   {providerFeedback && <p className="provider-feedback">{providerFeedback}</p>}
                   <div className="provider-model-list">{visibleModels.slice(0, 120).map((item) => (
                     <div className={`provider-model-row ${model === `${selectedProviderInfo.id}/${item.id}` ? "selected" : ""}`} key={item.id}>

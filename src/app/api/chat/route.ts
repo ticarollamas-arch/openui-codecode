@@ -6,9 +6,9 @@ import { getNineRouterConfig, nineRouterHeaders } from "@/lib/ninerouter";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-function getClient(userUrl?: string, userPassword?: string) {
-  const url = userUrl || process.env.OPENCODE_SERVER_URL || "http://127.0.0.1:4096";
-  const password = userPassword || process.env.OPENCODE_SERVER_PASSWORD;
+function getClient() {
+  const url = process.env.EXECUTOR_SERVER_URL || "http://127.0.0.1:4096";
+  const password = process.env.EXECUTOR_SERVER_PASSWORD;
   return createOpencodeClient({
     baseUrl: url,
     throwOnError: true,
@@ -30,9 +30,6 @@ export async function POST(req: NextRequest) {
       clientChatId,
       message,
       model,
-      customServerUrl,
-      customServerPassword,
-      userApiKeys,
     } = await req.json();
 
     if (typeof message !== "string" || !message.trim()) {
@@ -40,7 +37,7 @@ export async function POST(req: NextRequest) {
     }
 
     const selectedModel = model || "groq/openai/gpt-oss-120b";
-    const groqKey = userApiKeys?.groq || process.env.GROQ_API_KEY;
+    const groqKey = process.env.GROQ_API_KEY;
     const [selectedProvider, selectedModelId] = selectedModel.includes("/")
       ? [selectedModel.split("/")[0], selectedModel.slice(selectedModel.indexOf("/") + 1)]
       : ["", selectedModel];
@@ -87,7 +84,7 @@ export async function POST(req: NextRequest) {
           {
             role: "system",
             content:
-              "Você é o motor inteligente do OpenCode WebUI. Auxilie o usuário no desenvolvimento de software de alta qualidade, arquitetura limpa, engenharia reversa ética e resolução de problemas técnicos com precisão.",
+              "Você é o motor inteligente do plataforma de desenvolvimento. Auxilie o usuário no desenvolvimento de software de alta qualidade, arquitetura limpa, engenharia reversa ética e resolução de problemas técnicos com precisão.",
           },
           {
             role: "user",
@@ -113,9 +110,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Otherwise, dispatch to OpenCode Executor SDK
+    // Otherwise, dispatch to SDK do motor de execução
     try {
-      const api = getClient(customServerUrl, customServerPassword);
+      const api = getClient();
       let id = typeof sessionId === "string" && sessionId.length ? sessionId : "";
       if (!id) {
         const created: any = await api.session.create({ body: { title: message.slice(0, 72) } });
@@ -127,7 +124,7 @@ export async function POST(req: NextRequest) {
         const separator = model.indexOf("/");
         body.model = separator > 0
           ? { providerID: model.slice(0, separator), modelID: model.slice(separator + 1) }
-          : { providerID: process.env.OPENCODE_PROVIDER_ID || "openai", modelID: model };
+          : { providerID: process.env.EXECUTOR_PROVIDER_ID || "openai", modelID: model };
       }
 
       const result: any = await api.session.prompt({ path: { id }, body });
@@ -141,18 +138,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         sessionId: id,
         clientChatId,
-        message: text || "Tarefa recebida pelo OpenCode.",
+        message: text || "Tarefa recebida pelo motor de execução.",
         parts,
       });
     } catch (opencodeErr) {
-      // If OpenCode executor is not connected, but Groq key is present, fallback to Groq!
+      // If motor de execução is not connected, but Groq key is present, fallback to Groq!
       if (groqKey) {
         const result = await callGroqWithFallback({
           messages: [
             {
               role: "system",
               content:
-                "Você é o assistente de desenvolvimento OpenCode. O executor local está em espera, respondendo em modo autônomo de alta velocidade.",
+                "Você é o assistente de desenvolvimento da plataforma. O executor local está em espera, respondendo em modo autônomo de alta velocidade.",
             },
             { role: "user", content: message },
           ],
@@ -180,11 +177,11 @@ export async function DELETE(req: NextRequest) {
     if (process.env.APP_ACCESS_TOKEN && req.headers.get("x-app-token") !== process.env.APP_ACCESS_TOKEN) {
       return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
     }
-    const { sessionId, customServerUrl, customServerPassword } = await req.json();
+    const { sessionId } = await req.json();
     if (typeof sessionId !== "string" || !sessionId) {
       throw new Error("Sessão não informada");
     }
-    await getClient(customServerUrl, customServerPassword).session.abort({ path: { id: sessionId } });
+    await getClient().session.abort({ path: { id: sessionId } });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(

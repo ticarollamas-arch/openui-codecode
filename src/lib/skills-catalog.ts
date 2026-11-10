@@ -78,7 +78,7 @@ const BASE_SKILLS: SkillMetadata[] = [
     id: "tailwind-dark-panel-theme",
     name: "Paleta Dark Panel & Design System",
     category: "Frontend & UI",
-    description: "Implementa paletas escuras estilo OpenCode com contrastes ergonômicos e suporte a micro-interações.",
+    description: "Implementa paletas escuras de desenvolvimento com contrastes ergonômicos e suporte a micro-interações.",
     tags: ["css", "tailwind", "dark-mode", "ui-ux"],
     version: "1.2.0",
   },
@@ -137,7 +137,7 @@ export function getFullSkillsCatalog(): SkillMetadata[] {
     "Transições de Estado Reativo", "APIs GraphQL com DataLoader", "Middlewares de Rate Limit",
     "Webhooks Seguros com HMAC", "Schemas Prisma e Migrações", "Testes de Carga com k6",
     "Serialização e Parse de AST", "Algoritmos de Token Compression", "Deploys Serverless na Vercel",
-    "Interações com SDK OpenCode", "Streaming de Eventos Server-Sent", "WebSockets em Tempo Real",
+    "Interações com SDK de execução", "Streaming de Eventos Server-Sent", "WebSockets em Tempo Real",
     "Sanitização de Inputs e XSS", "Controle de Concorrência Otimista",
   ];
 
@@ -246,7 +246,7 @@ ${skill.description}
 
 ## Parâmetros e Configurações
 - **Strict Mode**: Habilitado
-- **Ambiente Recomendado**: Node.js 22 / Next.js / OpenCode Executor
+- **Ambiente Recomendado**: Node.js 22 / Next.js / motor de execução
 - **Tempo de Execução Médio**: Sub-segundo
 
 ## Exemplo de Aplicação

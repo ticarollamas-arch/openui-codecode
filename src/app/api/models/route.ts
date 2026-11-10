@@ -3,19 +3,19 @@ import { fetchNineRouterModels, getNineRouterConfig } from "@/lib/ninerouter";
 
 export const runtime = "nodejs";
 
-async function readCatalog(baseUrlValue?: string, passwordValue?: string) {
-  const baseUrl = (baseUrlValue || process.env.OPENCODE_SERVER_URL || "http://127.0.0.1:4096").replace(/\/$/, "");
-  const password = passwordValue || process.env.OPENCODE_SERVER_PASSWORD;
+async function readCatalog() {
+  const baseUrl = (process.env.EXECUTOR_SERVER_URL || "http://127.0.0.1:4096").replace(/\/$/, "");
+  const password = process.env.EXECUTOR_SERVER_PASSWORD;
   const headers: Record<string, string> = password
     ? { Authorization: `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}` }
     : {};
 
   let providers: any[] = [];
   let connected: string[] = [];
-  let openCodeError = "";
+  let executorError = "";
   try {
     const response = await fetch(`${baseUrl}/provider`, { headers, cache: "no-store", signal: AbortSignal.timeout(9000) });
-    if (!response.ok) throw new Error(`OpenCode respondeu ${response.status}`);
+    if (!response.ok) throw new Error(`Motor de execução respondeu ${response.status}`);
     const payload = await response.json();
     connected = payload.connected || [];
     const authResponse = await fetch(`${baseUrl}/provider/auth`, { headers, cache: "no-store", signal: AbortSignal.timeout(9000) }).catch(() => null);
@@ -33,7 +33,7 @@ async function readCatalog(baseUrlValue?: string, passwordValue?: string) {
       })),
     })).filter((provider: any) => provider.models.length > 0);
   } catch (error) {
-    openCodeError = error instanceof Error ? error.message : "OpenCode indisponível";
+    executorError = error instanceof Error ? error.message : "Motor de execução indisponível";
   }
 
   let router: any = { configured: false, connected: false, models: [] };
@@ -48,21 +48,11 @@ async function readCatalog(baseUrlValue?: string, passwordValue?: string) {
       router = { configured: true, connected: false, models: [], error: error instanceof Error ? error.message : "Falha ao consultar 9Router." };
     }
   }
-  return NextResponse.json({ providers, connected, source: "OpenCode + 9Router", router, openCodeError });
+  return NextResponse.json({ providers, connected, source: "Motor de execução + 9Router", router, executorError });
 }
 
 export async function GET() {
   return readCatalog();
 }
 
-export async function POST(req: NextRequest) {
-  try {
-    const { customServerUrl, customServerPassword } = await req.json();
-    if (customServerUrl && (typeof customServerUrl !== "string" || !/^https?:\/\//i.test(customServerUrl))) {
-      return NextResponse.json({ error: "URL do servidor OpenCode inválida. Use HTTP ou HTTPS." }, { status: 400 });
-    }
-    return await readCatalog(customServerUrl, customServerPassword);
-  } catch (error) {
-    return NextResponse.json({ providers: [], connected: [], error: error instanceof Error ? error.message : "Não foi possível consultar o catálogo." }, { status: 503 });
-  }
-}
+export async function POST(_req: NextRequest) { return readCatalog(); }

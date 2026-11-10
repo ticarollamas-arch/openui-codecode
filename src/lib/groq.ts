@@ -87,7 +87,7 @@ export async function callGroqWithFallback(options: {
         headers: {
           Authorization: `Bearer ${apiKey.trim()}`,
           "Content-Type": "application/json",
-          "User-Agent": "OpenCode-WebUI/2.0",
+          "User-Agent": "Open-UI-Code-Code/1.0",
         },
         body: JSON.stringify({
           model,

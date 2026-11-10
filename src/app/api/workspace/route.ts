@@ -81,9 +81,9 @@ export async function POST(req: NextRequest) {
     const archive = form.get("archive");
     const archiveFile = archive instanceof File ? archive : null;
     const archiveBase64 = String(form.get("archiveBase64") || "");
-    const groqKey = String(form.get("groqApiKey") || process.env.GROQ_API_KEY || "").trim();
-    const customServerUrl = String(form.get("customServerUrl") || process.env.OPENCODE_SERVER_URL || "").trim();
-    const customServerPassword = String(form.get("customServerPassword") || process.env.OPENCODE_SERVER_PASSWORD || "");
+    const groqKey = String(process.env.GROQ_API_KEY || "").trim();
+    const customServerUrl = String(process.env.EXECUTOR_SERVER_URL || "").trim();
+    const customServerPassword = String(process.env.EXECUTOR_SERVER_PASSWORD || "");
     if (!prompt) return NextResponse.json({ error: "Descreva o que deseja construir ou alterar." }, { status: 400 });
 
     const source = await readArchive(archiveFile, archiveBase64);
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
     const useOpenCode = Boolean(customServerUrl) && !model.startsWith("9router/");
     const useNineRouter = model.startsWith("9router/");
     if (!useOpenCode && !useNineRouter && !model.startsWith("groq/")) {
-      throw new Error("Selecione 9Router Auto, conecte um servidor OpenCode ou selecione um modelo Groq.");
+      throw new Error("Selecione 9Router Auto, configure o motor de execução ou selecione um modelo Groq.");
     }
     if (useNineRouter) {
       const { baseUrl, apiKey } = getNineRouterConfig();
@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
       });
       const created: any = await client.session.create({ body: { title: `OpenUI: ${prompt.slice(0, 64)}` } });
       const sessionId = created?.data?.id;
-      if (!sessionId) throw new Error("OpenCode não retornou um identificador de sessão.");
+      if (!sessionId) throw new Error("O motor de execução não retornou um identificador de sessão.");
       const separator = model.indexOf("/");
       const requestBody: any = {
         parts: [{ type: "text", text: `${system}\n\n${user}` }],
@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
       modelUsed = model;
       await client.session.delete({ path: { id: sessionId } }).catch(() => undefined);
     } else {
-      if (!groqKey) throw new Error("Conecte uma API Groq ou configure o servidor OpenCode nas configurações para gerar projetos ZIP.");
+      if (!groqKey) throw new Error("Configure a Groq no servidor ou habilite o motor de execução para gerar projetos ZIP.");
       const result = await callGroqWithFallback({
         messages: [{ role: "system", content: system }, { role: "user", content: user }],
         preferredModel,
