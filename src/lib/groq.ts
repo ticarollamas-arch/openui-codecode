@@ -42,6 +42,7 @@ export async function callGroqWithFallback(options: {
   apiKey?: string;
   temperature?: number;
   maxTokens?: number;
+  responseFormat?: { type: "json_object" };
 }): Promise<GroqExecutionResult> {
   const apiKey = options.apiKey || process.env.GROQ_API_KEY;
 
@@ -66,8 +67,13 @@ export async function callGroqWithFallback(options: {
     }
   } catch { /* usa os modelos de produção conhecidos como contingência */ }
   const knownModels = GROQ_MODELS.map((item) => item.id);
-  const candidates = liveModels.length ? knownModels.filter((id) => liveModels.includes(id)) : knownModels;
-  const priorityList = [preferred, ...candidates.filter((id) => id !== preferred)].filter((id, index, all) => all.indexOf(id) === index);
+  // Prefer the live catalog: stale hard-coded IDs must never block newly released models.
+  const candidates = liveModels.length
+    ? liveModels.filter((id) => !/(whisper|embedding|guard|tts|speech|transcrib)/i.test(id)).slice(0, 12)
+    : knownModels;
+  const priorityList = [preferred, ...candidates.filter((id) => id !== preferred)]
+    .filter((id, index, all) => all.indexOf(id) === index)
+    .filter((id) => !/(whisper|embedding|guard|tts|speech|transcrib)/i.test(id));
 
   const rateLimitedModels: string[] = [];
   let lastError: Error | null = null;
@@ -88,6 +94,7 @@ export async function callGroqWithFallback(options: {
           messages: options.messages,
           temperature: options.temperature ?? 0.3,
           max_tokens: options.maxTokens ?? 4096,
+          ...(options.responseFormat ? { response_format: options.responseFormat } : {}),
         }),
       });
 

@@ -86,3 +86,23 @@ A página de apresentação inclui [RTK — Rust Token Killer](https://github.co
 ### Configuração do servidor OpenCode
 
 Defina `OPENCODE_SERVER_URL` para o endereço do servidor OpenCode acessível pelo backend Next.js e, se necessário, `OPENCODE_SERVER_PASSWORD`. O servidor precisa estar ativo e protegido adequadamente. Não exponha a porta do OpenCode publicamente sem autenticação e regras de rede.
+
+## Agente de projetos e entrega ZIP
+
+O chat separa conversa comum de tarefas de projeto. Pedidos de criação/alteração de projeto e anexos ZIP são encaminhados a `POST /api/workspace`.
+
+- **Criar do zero:** a IA retorna um manifesto estruturado de arquivos; o backend valida caminhos, monta a árvore com JSZip e entrega um ZIP para download.
+- **Atualizar projeto:** o ZIP de origem é analisado; arquivos seguros e não modificados são preservados, enquanto os arquivos retornados pela IA substituem ou complementam a árvore. A conversa mantém o último ZIP gerado durante a sessão do navegador para revisões subsequentes.
+- **README:** a geração solicita documentação de instalação, execução e configuração. Se nenhum README for produzido, o servidor inclui um README básico.
+- **Entrega compacta:** a conversa exibe um resumo e um botão de download, não despeja o código integral no histórico.
+- **Fila de tarefas:** novas instruções enviadas durante uma execução são enfileiradas e processadas em sequência; não abortam a tarefa atual.
+- **Engenharia reversa:** a análise técnica do ZIP é seguida pelo envio do próprio arquivo ao agente de projetos. A recriação deve ser autorizada e independente; não copia código proprietário nem remove marcas d'água para ocultar autoria.
+- **Segurança:** `.env`, chaves, credenciais, `.git`, `node_modules` e artefatos de build são excluídos do contexto/ZIP. `.env.example` é permitido.
+
+### Provedores do agente
+
+Quando `OPENCODE_SERVER_URL` (e opcionalmente `OPENCODE_SERVER_PASSWORD`) estiver configurado, a geração usa a sessão e o modelo selecionado no servidor OpenCode. Sem servidor OpenCode, a geração utiliza Groq e requer `GROQ_API_KEY` no ambiente ou uma chave informada pelo usuário. Modelos/provedores selecionados fora da Groq exigem o servidor OpenCode conectado.
+
+### Limites da implantação Vercel
+
+Esta versão serverless limita ZIP de entrada e saída a 3 MB para respeitar limites de payload da plataforma. A função tem duração máxima configurada de 60 segundos. Projetos maiores ou execuções longas precisam de executor persistente em VPS e armazenamento de artefatos (por exemplo, S3 compatível). O backend não afirma que executou `npm install`, build ou testes; o resultado informa explicitamente quando essas verificações não foram executadas.

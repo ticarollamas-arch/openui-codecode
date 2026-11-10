@@ -43,7 +43,8 @@ import {
 } from "lucide-react";
 
 type Chat = { id: string; title: string; updatedAt: number };
-type Msg = { id: string; role: "user" | "assistant"; text: string; time: number; status?: string };
+type Msg = { id: string; role: "user" | "assistant"; text: string; time: number; status?: string; artifact?: { id: string; fileName: string; fileCount: number } };
+type PendingTask = { chatId: string; text: string; files: File[] };
 type Skill = { id: string; name: string; description: string; category?: string; tags?: string[]; version?: string };
 type GitHubUser = {
   login: string;
@@ -73,7 +74,6 @@ type ReverseEngResult = {
   dependencies: Record<string, string>;
   componentsCount: number;
   routesCount: number;
-  cleanRoomPrompt: string;
   structureTree: string[];
 };
 
@@ -113,6 +113,7 @@ export default function Home() {
   const [messages, setMessages] = useState<Record<string, Msg[]>>({});
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [queuedCount, setQueuedCount] = useState(0);
   const [model, setModel] = useState("groq/openai/gpt-oss-120b");
   const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState("Pronto para trabalhar");
@@ -174,6 +175,10 @@ export default function Home() {
   const [providerFeedback, setProviderFeedback] = useState("");
 
   const endRef = useRef<HTMLDivElement>(null);
+  const busyRef = useRef(false);
+  const taskQueueRef = useRef<PendingTask[]>([]);
+  const workspaceByChatRef = useRef<Record<string, { base64: string; fileName: string }>>({});
+  const artifactByIdRef = useRef<Record<string, string>>({});
   const fileRef = useRef<HTMLInputElement>(null);
   const zipInputRef = useRef<HTMLInputElement>(null);
 
@@ -253,6 +258,21 @@ export default function Home() {
         setSessionMap(d.sessionMap || {});
         if (d.tab) setTab(d.tab);
       }
+      try {
+        const cachedWorkspaceRaw = sessionStorage.getItem("openui-code-code-workspace");
+        if (cachedWorkspaceRaw) {
+          const cachedWorkspace = JSON.parse(cachedWorkspaceRaw);
+          if (cachedWorkspace?.chatId && cachedWorkspace?.base64 && cachedWorkspace?.fileName) {
+            workspaceByChatRef.current[cachedWorkspace.chatId] = { base64: cachedWorkspace.base64, fileName: cachedWorkspace.fileName };
+            if (cachedWorkspace.artifactId) artifactByIdRef.current[cachedWorkspace.artifactId] = cachedWorkspace.base64;
+            const binary = atob(cachedWorkspace.base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+            setZip(new File([bytes.buffer as ArrayBuffer], cachedWorkspace.fileName, { type: "application/zip" }));
+            setZipValidation({ valid: true, message: `Projeto recuperado da sessão: ${cachedWorkspace.fileName}.` });
+          }
+        }
+      } catch { /* cache opcional; não bloqueia a hidratação da interface */ }
       const savedToken = localStorage.getItem(GITHUB_STORE_TOKEN);
       const savedUser = localStorage.getItem(GITHUB_STORE_USER);
       if (savedToken) {
@@ -404,11 +424,11 @@ export default function Home() {
       return;
     }
 
-    if (selectedFile.size > 50 * 1024 * 1024) {
+    if (selectedFile.size > 3 * 1024 * 1024) {
       setZip(null);
       setZipValidation({
         valid: false,
-        message: "O arquivo excede o limite de 50 MB.",
+        message: "O arquivo excede o limite de 3 MB desta implantação Vercel.",
       });
       return;
     }
@@ -444,89 +464,179 @@ export default function Home() {
 
   // Send reverse engineering prompt directly to OpenCode / Groq Chat
   function sendReversePromptToChat() {
-    if (!reverseResult) return;
-    const prompt = reverseResult.cleanRoomPrompt;
-    setInput(prompt);
-    setTab("chat");
-  }
-
-  // Send message with Groq fallback + OpenCode
-  async function send() {
-    const text = input.trim();
-    if ((!text && !files.length) || busy) return;
-    const id = active || crypto.randomUUID();
-    if (!active) {
-      setChats((v) => [{ id, title: "Nova conversa", updatedAt: Date.now() }, ...v]);
+    if (!reverseResult || !zip) return;
+    const text = "Faça uma recriação Clean-Room do ZIP anexado. Preserve a estrutura técnica e os arquivos necessários, atualize o README, implemente o projeto funcional com identidade visual original e entregue um novo ZIP completo. Trabalhe somente com conteúdo que tenho autorização para modificar.";
+    let id = active;
+    if (!id) {
+      id = crypto.randomUUID();
+      setChats((v) => [{ id, title: "Recriação do projeto", updatedAt: Date.now() }, ...v]);
+      setMessages((v) => ({ ...v, [id]: [] }));
       setActive(id);
     }
-    const names = files.map((f) => f.name);
-    const userText = text + (names.length ? `\n\nAnexos selecionados: ${names.join(", ")}` : "");
-    addMessage(id, { id: crypto.randomUUID(), role: "user", text: userText, time: Date.now() });
-    setChats((v) =>
-      v.map((c) =>
-        c.id === id ? { ...c, title: text.slice(0, 42) || "Arquivos anexados", updatedAt: Date.now() } : c
-      )
-    );
+    const task: PendingTask = { chatId: id, text, files: [zip] };
+    addUserTaskMessage(task);
     setInput("");
     setFiles([]);
-    setBusy(true);
-    setStatus("Processando instrução...");
+    setTab("chat");
+    if (busyRef.current) {
+      taskQueueRef.current.push(task);
+      setQueuedCount(taskQueueRef.current.length);
+    } else {
+      void drainTaskQueue(task);
+    }
+  }
+
+  function addUserTaskMessage(task: PendingTask) {
+    const names = task.files.map((f) => f.name);
+    const userText = task.text + (names.length ? `\n\nAnexos selecionados: ${names.join(", ")}` : "");
+    addMessage(task.chatId, { id: crypto.randomUUID(), role: "user", text: userText, time: Date.now() });
+    setChats((v) => v.map((c) => c.id === task.chatId
+      ? { ...c, title: task.text.slice(0, 42) || names[0] || "Nova tarefa", updatedAt: Date.now() }
+      : c));
+  }
+
+  function downloadWorkspaceZip(artifactId: string, fileName: string) {
+    const base64 = artifactByIdRef.current[artifactId];
+    if (!base64) {
+      window.alert("Este arquivo não está mais disponível nesta sessão. Anexe novamente o ZIP anterior para continuar.");
+      return;
+    }
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes.buffer as ArrayBuffer], { type: "application/zip" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function executeTask(task: PendingTask) {
+    const zipAttachment = task.files.find((f) => f.name.toLowerCase().endsWith(".zip"));
+    const previousWorkspace = workspaceByChatRef.current[task.chatId];
+    const projectIntent = /\b(crie|criar|desenvolva|desenvolver|construa|construir|implemente|implementar|atualize|atualizar|modifique|modificar|corrija|corrigir|refatore|refatorar|adicione|adicionar|remova|remover|gere|gerar|exporte|empacote|projeto|aplicativo|aplicação|site|sistema|pasta|arquivos|código|codigo|zip|engenharia reversa)\b/i.test(task.text);
+    const workspaceMode = Boolean(zipAttachment || previousWorkspace || projectIntent);
 
     try {
-      const r = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: sessionMap[id] || "",
-          clientChatId: id,
-          message: text || "Analise os arquivos anexados.",
-          model,
-          customServerUrl: apiKeys.customServerUrl || undefined,
-          customServerPassword: apiKeys.customServerPassword || undefined,
-          userApiKeys: apiKeys,
-        }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "Falha na execução");
-      if (d.sessionId) setSessionMap((v) => ({ ...v, [id]: d.sessionId }));
-      addMessage(id, {
+      if (workspaceMode) {
+        setStatus(previousWorkspace || zipAttachment ? "Lendo estrutura e preparando alterações..." : "Construindo projeto e preparando arquivos...");
+        const form = new FormData();
+        form.append("prompt", task.text || "Analise e organize o projeto anexado.");
+        form.append("model", model);
+        if (apiKeys.groq) form.append("groqApiKey", apiKeys.groq);
+        if (apiKeys.customServerUrl) form.append("customServerUrl", apiKeys.customServerUrl);
+        if (apiKeys.customServerPassword) form.append("customServerPassword", apiKeys.customServerPassword);
+        if (zipAttachment) form.append("archive", zipAttachment);
+        else if (previousWorkspace) form.append("archiveBase64", previousWorkspace.base64);
+
+        const response = await fetch("/api/workspace", { method: "POST", body: form });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Não foi possível gerar o projeto.");
+        workspaceByChatRef.current[task.chatId] = { base64: data.zipBase64, fileName: data.fileName };
+        const artifactId = crypto.randomUUID();
+        artifactByIdRef.current[artifactId] = data.zipBase64;
+        try {
+          sessionStorage.setItem("openui-code-code-workspace", JSON.stringify({ chatId: task.chatId, base64: data.zipBase64, fileName: data.fileName, artifactId }));
+        } catch { /* o ZIP continua disponível em memória nesta sessão */ }
+        const zipBinary = atob(data.zipBase64);
+        const zipBytes = new Uint8Array(zipBinary.length);
+        for (let index = 0; index < zipBinary.length; index++) zipBytes[index] = zipBinary.charCodeAt(index);
+        const generatedZip = new File([zipBytes.buffer as ArrayBuffer], data.fileName, { type: "application/zip" });
+        setZip(generatedZip);
+        setZipValidation({ valid: true, message: `Projeto gerado: ${data.fileName} (${data.fileCount} arquivos). Pronto para publicação no GitHub.` });
+        const checks = Array.isArray(data.checks) && data.checks.length
+          ? `\n\nVerificações: ${data.checks.join(" · ")}`
+          : "";
+        addMessage(task.chatId, {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          text: `${data.summary || "Projeto empacotado."}\n\n${data.fileCount} arquivos incluídos no ZIP.${checks}\n\nO ZIP está pronto para baixar e também foi disponibilizado para a ferramenta de publicação no GitHub. Para solicitar novas alterações, continue nesta conversa.`,
+          time: Date.now(),
+          artifact: { id: artifactId, fileName: data.fileName, fileCount: data.fileCount },
+        });
+        setStatus("ZIP pronto para entrega");
+      } else {
+        const names = task.files.map((f) => f.name);
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: sessionMap[task.chatId] || "",
+            clientChatId: task.chatId,
+            message: task.text || `Analise os arquivos anexados: ${names.join(", ")}`,
+            model,
+            customServerUrl: apiKeys.customServerUrl || undefined,
+            customServerPassword: apiKeys.customServerPassword || undefined,
+            userApiKeys: apiKeys,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Falha na execução");
+        if (data.sessionId) setSessionMap((v) => ({ ...v, [task.chatId]: data.sessionId }));
+        addMessage(task.chatId, { id: crypto.randomUUID(), role: "assistant", text: data.message || "Instrução concluída.", time: Date.now() });
+        setStatus("Concluído");
+      }
+    } catch (error) {
+      addMessage(task.chatId, {
         id: crypto.randomUUID(),
         role: "assistant",
-        text: d.message || "Instrução concluída.",
-        time: Date.now(),
-      });
-      setStatus("Concluído");
-    } catch (e) {
-      addMessage(id, {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        text: `Erro de execução: ${e instanceof Error ? e.message : "Erro desconhecido"}`,
+        text: `Não foi possível concluir a tarefa: ${error instanceof Error ? error.message : "Erro desconhecido"}`,
         time: Date.now(),
         status: "error",
       });
-      setStatus("Falha de execução");
-    } finally {
-      setBusy(false);
+      setStatus("Falha na execução");
     }
   }
 
-  async function stop() {
-    if (!active) return;
-    try {
-      await fetch("/api/chat", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: sessionMap[active] || active,
-          customServerUrl: apiKeys.customServerUrl || undefined,
-          customServerPassword: apiKeys.customServerPassword || undefined,
-        }),
-      });
-      setStatus("Interrupção solicitada");
-    } catch {
-      setStatus("Não foi possível interromper");
+  async function drainTaskQueue(firstTask: PendingTask) {
+    if (busyRef.current) {
+      taskQueueRef.current.push(firstTask);
+      setQueuedCount(taskQueueRef.current.length);
+      return;
     }
-    setBusy(false);
+    busyRef.current = true;
+    setBusy(true);
+    let task: PendingTask | undefined = firstTask;
+    try {
+      while (task) {
+        await executeTask(task);
+        task = taskQueueRef.current.shift();
+        setQueuedCount(taskQueueRef.current.length);
+      }
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+      setQueuedCount(0);
+      setStatus("Pronto para trabalhar");
+    }
+  }
+
+  // Novas mensagens entram na fila; nunca interrompem o trabalho em andamento.
+  function send() {
+    const text = input.trim();
+    if (!text && !files.length) return;
+    let id = active;
+    if (!id) {
+      id = crypto.randomUUID();
+      setChats((v) => [{ id, title: text.slice(0, 42) || "Nova conversa", updatedAt: Date.now() }, ...v]);
+      setMessages((v) => ({ ...v, [id]: [] }));
+      setActive(id);
+    }
+    const task: PendingTask = { chatId: id, text, files: [...files] };
+    addUserTaskMessage(task);
+    setInput("");
+    setFiles([]);
+    if (busyRef.current) {
+      taskQueueRef.current.push(task);
+      setQueuedCount(taskQueueRef.current.length);
+      setStatus("Sua próxima instrução foi adicionada à fila.");
+      return;
+    }
+    void drainTaskQueue(task);
   }
 
   // GitHub Auth
@@ -950,7 +1060,7 @@ export default function Home() {
                       </div>
                       <div className="chat-msg-body">
                         <div className="chat-msg-role">
-                          {m.role === "user" ? "VOCÊ" : "OPENCODE / GROQ"}
+                          {m.role === "user" ? "VOCÊ" : "OPENUI CODE CODE"}
                         </div>
                         <div className="chat-msg-text">{m.text}</div>
                         <button
@@ -960,6 +1070,15 @@ export default function Home() {
                         >
                           <Copy size={12} /> Copiar
                         </button>
+                        {m.artifact && (
+                          <button
+                            className="btn-opencode-primary"
+                            style={{ marginTop: "10px", width: "max-content" }}
+                            onClick={() => downloadWorkspaceZip(m.artifact!.id, m.artifact!.fileName)}
+                          >
+                            <FolderOpen size={15} /> Baixar {m.artifact.fileName} · {m.artifact.fileCount} arquivos
+                          </button>
+                        )}
                         {m.status === "error" && (
                           <div className="dark-notice-box warning" style={{ marginTop: "8px", padding: "8px 12px" }}>
                             <AlertCircle size={14} />
@@ -976,12 +1095,12 @@ export default function Home() {
                         <Code2 size={16} />
                       </div>
                       <div>
-                        <div className="chat-msg-role">OPENCODE</div>
+                        <div className="chat-msg-role">OPENUI CODE CODE · EXECUTANDO</div>
                         <div className="chat-typing">
                           <i />
                           <i />
                           <i />
-                          <span>{status}</span>
+                          <span>{status}{queuedCount > 0 ? ` · ${queuedCount} na fila` : ""}</span>
                         </div>
                       </div>
                     </div>
@@ -1032,7 +1151,7 @@ export default function Home() {
                       send();
                     }
                   }}
-                  placeholder="Escreva uma instrução para o OpenCode ou selecione um modelo Groq..."
+                  placeholder={busy ? "A execução continua. Envie outra instrução para adicioná-la à fila..." : "Descreva o que deseja criar ou alterar no projeto..."}
                   rows={2}
                 />
 
@@ -1083,11 +1202,11 @@ export default function Home() {
 
                   <button
                     className="dark-send-btn"
-                    disabled={!busy && !input.trim() && !files.length}
-                    onClick={busy ? stop : send}
-                    title={busy ? "Parar execução" : "Enviar mensagem"}
+                    disabled={!input.trim() && !files.length}
+                    onClick={send}
+                    title={busy ? "Adicionar à fila sem interromper a execução" : "Enviar mensagem"}
                   >
-                    {busy ? <Square size={13} fill="currentColor" /> : <ArrowUp size={17} />}
+                    <ArrowUp size={17} />
                   </button>
                 </div>
               </div>
@@ -1143,7 +1262,7 @@ export default function Home() {
                     {zip ? zip.name : "Clique para selecionar ou arraste o arquivo .zip"}
                   </div>
                   <div style={{ fontSize: "12px", color: "var(--text-dim)" }}>
-                    {zip ? `${(zip.size / 1024 / 1024).toFixed(2)} MB` : "Suporta projetos compactados de até 50 MB"}
+                    {zip ? `${(zip.size / 1024 / 1024).toFixed(2)} MB` : "ZIP de até 3 MB nesta versão Vercel"}
                   </div>
                 </div>
 
@@ -1196,35 +1315,9 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Prompt Clean-Room Generator */}
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                    <span style={{ fontSize: "13px", fontWeight: 600, color: "#ffffff" }}>
-                      Prompt de Engenharia Limpa Gerado:
-                    </span>
-                    <button
-                      className="header-btn"
-                      onClick={() => navigator.clipboard.writeText(reverseResult.cleanRoomPrompt)}
-                    >
-                      <Copy size={13} /> Copiar Prompt
-                    </button>
-                  </div>
-                  <textarea
-                    readOnly
-                    value={reverseResult.cleanRoomPrompt}
-                    rows={8}
-                    style={{
-                      width: "100%",
-                      fontFamily: "monospace",
-                      fontSize: "12px",
-                      background: "var(--bg-subtle)",
-                      border: "1px solid var(--line)",
-                      borderRadius: "8px",
-                      padding: "10px",
-                      color: "var(--text-secondary)",
-                      resize: "vertical",
-                    }}
-                  />
+                <div className="dark-notice-box neutral">
+                  <ShieldCheck size={16} />
+                  <span>A análise técnica está pronta. O ZIP original será enviado diretamente ao agente de projetos; a conversa mostrará apenas o resumo e o link para baixar a nova versão, sem despejar código ou prompts extensos.</span>
                 </div>
 
                 <button
@@ -1232,8 +1325,8 @@ export default function Home() {
                   onClick={sendReversePromptToChat}
                   style={{ width: "max-content" }}
                 >
-                  <MessageSquare size={15} />
-                  Enviar ao Chat para Recriação do Projeto
+                  <FolderOpen size={15} />
+                  Recriar projeto e entregar ZIP
                 </button>
               </div>
             )}

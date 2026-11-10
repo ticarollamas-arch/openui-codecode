@@ -35,9 +35,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (file.size > 50 * 1024 * 1024) {
+    if (file.size > 3 * 1024 * 1024) {
       return NextResponse.json(
-        { error: "Arquivo ZIP excede o limite máximo permitido de 50 MB para análise." },
+        { error: "Arquivo ZIP excede o limite de 3 MB desta implantação serverless." },
         { status: 413 }
       );
     }
@@ -123,58 +123,6 @@ export async function POST(req: NextRequest) {
       else if (deps["react"]) detectedFramework = "React (CRA/Gatsby/Custom)";
     }
 
-    // Build the Clean-Room Reverse Engineering Prompt
-    const cleanRoomPrompt = `### PROMPT DE ENGENHARIA REVERSA ÉTICA (CLEAN-ROOM REWRITE)
-
-Você é um Arquiteto de Software Especialista em Engenharia Reversa e Engenharia Limpa ("Clean-Room").
-Sua missão é projetar e recriar uma aplicação com as mesmas funcionalidades, layout estrutural e regras de negócio da aplicação analisada abaixo, mas reescrevendo 100% do código do zero, em conformidade com as melhores práticas de código limpo.
-
----
-#### DIRETRIZES DA ENGENHARIA LIMPA (CLEAN-ROOM):
-1. **Despersonalização & Propriedade Intelectual**:
-   - Remova e substitua marcas registradas, logotipos e referências proprietárias do aplicativo original por uma marca neutra ou sob medida.
-   - Elimine qualquer segredo, chave ou credencial vazada no código original.
-2. **Reimplementação Funcional**:
-   - Não copie código literal; reprojete a lógica com base na especificação arquitetural deduzida.
-   - Utilize a stack mais moderna e performática: TypeScript estrito, componentes modulares, layout responsivo e acessível.
-3. **Escalabilidade & Qualidade**:
-   - Garanta separação de conceitos (Clean Architecture / Domain-Driven Design simplificado).
-   - Otimize o gerenciamento de estado e consultas de dados.
-
----
-#### METADADOS DO PROJETO ANALISADO:
-- **Framework Detectado**: ${detectedFramework}
-- **Dependências Principais**: ${
-      packageJsonContent?.dependencies
-        ? Object.keys(packageJsonContent.dependencies).join(", ")
-        : "N/A"
-    }
-- **Scripts do Projeto**: ${
-      packageJsonContent?.scripts
-        ? Object.entries(packageJsonContent.scripts)
-            .map(([k, v]) => `${k}: ${v}`)
-            .join(" | ")
-        : "N/A"
-    }
-- **Total de Arquivos Analisados**: ${structureTree.length} arquivos seguros.
-- **Componentes Identificados**: ${
-      componentsList.slice(0, 15).join(", ") || "Componentes estruturais na raiz"
-    }${componentsList.length > 15 ? ` (+${componentsList.length - 15} outros)` : ""}
-- **Rotas Identificadas**: ${
-      routesList.slice(0, 12).join(", ") || "Rotas dinâmicas padrão"
-    }
-
----
-#### ESTRUTURA DO DIRETÓRIO ORIGEM (MAPA DE ARQUITETURA):
-\`\`\`
-${structureTree.slice(0, 60).join("\n")}
-${structureTree.length > 60 ? `... (+ ${structureTree.length - 60} arquivos)` : ""}
-\`\`\`
-
----
-#### TAREFA:
-Gere a especificação técnica completa e implemente os arquivos fundamentais para recriar esta solução do zero no formato Clean-Room. Forneça o código funcional dos componentes centrais e explique as escolhas de arquitetura.`;
-
     return NextResponse.json({
       ok: true,
       fileName: file.name,
@@ -185,7 +133,6 @@ Gere a especificação técnica completa e implemente os arquivos fundamentais p
       devDependencies: packageJsonContent?.devDependencies || {},
       componentsCount: componentsList.length,
       routesCount: routesList.length,
-      cleanRoomPrompt,
       structureTree: structureTree.slice(0, 100),
     });
   } catch (error) {
